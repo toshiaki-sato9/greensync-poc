@@ -7,3 +7,8 @@ PoC-001:
 - Store sensor history in Home Assistant
 - Control a small pump based on soil moisture threshold
 - Evaluate soil moisture recovery after watering
+
+<img width="2826" height="1460" alt="image" src="https://github.com/user-attachments/assets/0c60a154-6079-4348-8941-7845474e578e" />
+
+
+
