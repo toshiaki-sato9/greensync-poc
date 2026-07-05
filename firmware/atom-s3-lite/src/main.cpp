@@ -1,57 +1,43 @@
 #include <Arduino.h>
-#include <WiFi.h>
 #include <M5Unified.h>
-#include "secrets.h"
+#include "Config.h"
+#include "MoistureSensor.h"
+#include "PumpController.h"
 
-const char* WIFI_SSID = POC_WIFI_SSID;
-const char* WIFI_PASS = POC_WIFI_PW;
+MoistureSensor moistureSensor;
+PumpController pump;
 
 void setup() {
   Serial.begin(115200);
   delay(2000);
 
-  Serial.println();
-  Serial.println("===== GreenSync PoC001 WiFi Test =====");
-
   auto cfg = M5.config();
   M5.begin(cfg);
 
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  Serial.print("Connecting to WiFi");
-
-  int retry = 0;
-  while (WiFi.status() != WL_CONNECTED && retry < 30) {
-    delay(500);
-    Serial.print(".");
-    retry++;
-  }
+  pump.begin();
 
   Serial.println();
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("WiFi connected!");
-    Serial.print("SSID: ");
-    Serial.println(WiFi.SSID());
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-    Serial.print("RSSI: ");
-    Serial.print(WiFi.RSSI());
-    Serial.println(" dBm");
-  } else {
-    Serial.println("WiFi connection failed.");
-  }
+  Serial.println("===== GreenSync Firmware v0.1.0 =====");
 }
 
 void loop() {
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("WiFi OK, RSSI: ");
-    Serial.print(WiFi.RSSI());
-    Serial.println(" dBm");
+  int raw = moistureSensor.readRaw();
+  int percent = moistureSensor.readPercent();
+
+  Serial.print("raw=");
+  Serial.print(raw);
+  Serial.print(", moisture=");
+  Serial.print(percent);
+  Serial.println("%");
+
+  if (percent < Config::WateringThresholdPercent) {
+    Serial.println("Soil is dry. Watering...");
+    pump.waterForMs(Config::WateringDurationMs);
+    Serial.println("Watering done.");
   } else {
-    Serial.println("WiFi disconnected.");
+    Serial.println("Soil moisture is enough. No watering.");
   }
 
-  delay(5000);
+  Serial.println("--------------------");
+  delay(10000);
 }
