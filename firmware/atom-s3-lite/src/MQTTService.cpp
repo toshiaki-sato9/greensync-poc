@@ -52,6 +52,41 @@ void MQTTService::publishDiscovery() {
 
   bool ok = client.publish(moistureConfigTopic, moistureConfig, true);
 
+const char* wateredConfigTopic =
+  "homeassistant/binary_sensor/greensync_atom_s3_001/watered/config";
+
+const char* wateredConfig =
+  "{\"name\":\"Pump Active\","
+  "\"unique_id\":\"greensync_atom_s3_001_pump_active\","
+  "\"state_topic\":\"greensync/atom-s3-001/state\","
+  "\"value_template\":\"{{ 'ON' if value_json.watered else 'OFF' }}\","
+  "\"payload_on\":\"ON\","
+  "\"payload_off\":\"OFF\","
+  "\"device\":{\"identifiers\":[\"greensync_atom_s3_001\"],"
+  "\"name\":\"GreenSync AtomS3 001\","
+  "\"manufacturer\":\"GreenSync\","
+  "\"model\":\"ATOMS3 Lite Watering Unit\"}}";
+
+client.publish(wateredConfigTopic, wateredConfig, true);
+
+const char* rssiConfigTopic =
+  "homeassistant/sensor/greensync_atom_s3_001/rssi/config";
+
+const char* rssiConfig =
+  "{\"name\":\"WiFi RSSI\","
+  "\"unique_id\":\"greensync_atom_s3_001_rssi\","
+  "\"state_topic\":\"greensync/atom-s3-001/state\","
+  "\"value_template\":\"{{ value_json.rssi }}\","
+  "\"unit_of_measurement\":\"dBm\","
+  "\"device_class\":\"signal_strength\","
+  "\"state_class\":\"measurement\","
+  "\"device\":{\"identifiers\":[\"greensync_atom_s3_001\"],"
+  "\"name\":\"GreenSync AtomS3 001\","
+  "\"manufacturer\":\"GreenSync\","
+  "\"model\":\"ATOMS3 Lite Watering Unit\"}}";
+
+client.publish(rssiConfigTopic, rssiConfig, true);
+
   Serial.print("Discovery publish result=");
   Serial.println(ok ? "OK" : "NG");
 }
