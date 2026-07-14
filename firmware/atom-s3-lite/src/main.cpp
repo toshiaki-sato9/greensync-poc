@@ -14,7 +14,67 @@ WateringSettings settings;
 WiFiService wifi;
 MQTTService mqtt;
 
-bool emergencyStop = false;
+namespace {
+enum class ControllerState {
+  Idle,
+  Watering,
+  EmergencyStop,
+};
+
+ControllerState controllerState = ControllerState::Idle;
+unsigned long lastTelemetryAtMs = 0;
+unsigned long wateringStartedAtMs = 0;
+int lastRaw = 0;
+int lastPercent = 0;
+bool hasSensorSample = false;
+
+const char* stateName(ControllerState state) {
+  switch (state) {
+    case ControllerState::Idle:
+      return "IDLE";
+    case ControllerState::Watering:
+      return "WATERING";
+    case ControllerState::EmergencyStop:
+      return "EMERGENCY_STOP";
+  }
+  return "UNKNOWN";
+}
+
+void readMoistureSample() {
+  lastRaw = moistureSensor.readRaw();
+  lastPercent = moistureSensor.readPercent();
+  hasSensorSample = true;
+}
+
+void publishCurrentState() {
+  if (!hasSensorSample) {
+    readMoistureSample();
+  }
+
+  mqtt.publishState(
+      lastRaw, lastPercent, wifi.rssi(), controllerState == ControllerState::Watering);
+  mqtt.publishSettings();
+}
+
+void startWatering(unsigned long nowMs) {
+  controllerState = ControllerState::Watering;
+  wateringStartedAtMs = nowMs;
+  pump.on();
+  Serial.println("Soil is dry. Watering...");
+}
+
+void stopWatering() {
+  pump.off();
+  Serial.println("Watering done.");
+  controllerState = ControllerState::Idle;
+}
+
+void enterEmergencyStop() {
+  pump.off();
+  controllerState = ControllerState::EmergencyStop;
+  Serial.println("EMERGENCY STOP: Pump forced OFF.");
+}
+}  // namespace
 
 void setup() {
   Serial.begin(115200);
@@ -37,35 +97,45 @@ void setup() {
 void loop() {
   M5.update();
   mqtt.loop();
+  const unsigned long nowMs = millis();
+  bool shouldPublish = false;
 
-  if (M5.BtnA.pressedFor(1500)) {
-    emergencyStop = true;
-    pump.off();
-    Serial.println("EMERGENCY STOP: Pump forced OFF.");
+  if (M5.BtnA.pressedFor(Config::EmergencyStopHoldMs) &&
+      controllerState != ControllerState::EmergencyStop) {
+    enterEmergencyStop();
+    shouldPublish = true;
   }
 
-  int raw = moistureSensor.readRaw();
-  int percent = moistureSensor.readPercent();
-  bool watered = false;
-
-  Serial.print("raw=");
-  Serial.print(raw);
-  Serial.print(", moisture=");
-  Serial.print(percent);
-  Serial.print("%, threshold=");
-  Serial.print(settings.wateringThresholdPercent());
-  Serial.println("%");
-
-  if (!emergencyStop && percent < settings.wateringThresholdPercent()) {
-    Serial.println("Soil is dry. Watering...");
-    pump.waterForMs(Config::WateringDurationMs);
-    watered = true;
-    Serial.println("Watering done.");
+  if (controllerState == ControllerState::Watering &&
+      nowMs - wateringStartedAtMs >= static_cast<unsigned long>(Config::WateringDurationMs)) {
+    stopWatering();
+    shouldPublish = true;
   }
 
-  mqtt.publishState(raw, percent, wifi.rssi(), watered);
-  mqtt.publishSettings();
+  if (!hasSensorSample ||
+      nowMs - lastTelemetryAtMs >= static_cast<unsigned long>(Config::TelemetryIntervalMs)) {
+    lastTelemetryAtMs = nowMs;
+    readMoistureSample();
 
-  Serial.println("--------------------");
-  delay(10000);
+    Serial.print("raw=");
+    Serial.print(lastRaw);
+    Serial.print(", moisture=");
+    Serial.print(lastPercent);
+    Serial.print("%, threshold=");
+    Serial.print(settings.wateringThresholdPercent());
+    Serial.print("%, state=");
+    Serial.println(stateName(controllerState));
+
+    if (controllerState == ControllerState::Idle &&
+        lastPercent < settings.wateringThresholdPercent()) {
+      startWatering(nowMs);
+    }
+
+    shouldPublish = true;
+  }
+
+  if (shouldPublish) {
+    publishCurrentState();
+    Serial.println("--------------------");
+  }
 }
