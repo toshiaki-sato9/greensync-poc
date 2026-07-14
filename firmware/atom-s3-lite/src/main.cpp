@@ -4,11 +4,13 @@
 #include "Config.h"
 #include "MoistureSensor.h"
 #include "PumpController.h"
+#include "WateringSettings.h"
 #include "WiFiService.h"
 #include "MQTTService.h"
 
 MoistureSensor moistureSensor;
 PumpController pump;
+WateringSettings settings;
 WiFiService wifi;
 MQTTService mqtt;
 
@@ -27,22 +29,15 @@ void setup() {
   Serial.println();
   Serial.println("===== GreenSync Firmware v0.2.0 MQTT =====");
 
+  settings.begin();
   wifi.begin();
-  mqtt.begin();
-
-  delay(1000);
-  mqtt.publishDiscovery();
+  mqtt.begin(&settings);
 }
 
 void loop() {
   M5.update();
   mqtt.loop();
-static bool discoveryDone = false;
 
-if (!discoveryDone) {
-    mqtt.publishDiscovery();
-    discoveryDone = true;
-}
   if (M5.BtnA.pressedFor(1500)) {
     emergencyStop = true;
     pump.off();
@@ -57,9 +52,11 @@ if (!discoveryDone) {
   Serial.print(raw);
   Serial.print(", moisture=");
   Serial.print(percent);
+  Serial.print("%, threshold=");
+  Serial.print(settings.wateringThresholdPercent());
   Serial.println("%");
 
-  if (!emergencyStop && percent < Config::WateringThresholdPercent) {
+  if (!emergencyStop && percent < settings.wateringThresholdPercent()) {
     Serial.println("Soil is dry. Watering...");
     pump.waterForMs(Config::WateringDurationMs);
     watered = true;
@@ -67,6 +64,7 @@ if (!discoveryDone) {
   }
 
   mqtt.publishState(raw, percent, wifi.rssi(), watered);
+  mqtt.publishSettings();
 
   Serial.println("--------------------");
   delay(10000);

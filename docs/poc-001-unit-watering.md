@@ -18,3 +18,13 @@ M5Stack Unit Wateringを使い、土壌水分のADC値をHome Assistantに蓄積
 
 ## 注意
 初期段階では自動散水しない。水漏れ・過散水を避けるため、まず手動操作で確認する。
+
+## Home Assistant から散水閾値を変更する
+- MQTT discovery により `Watering Threshold` の `number` エンティティが作成される
+- Home Assistant から閾値を変更すると、デバイスの散水判定に反映される
+- 閾値はESP32の永続領域に保存され、再起動後も維持される
+
+### 動作確認
+- Home Assistant で `Watering Threshold` を開き、値を変更する
+- デバイスのシリアルログで `Watering threshold updated via MQTT` が出ることを確認する
+- 以後の判定で、新しい閾値が `threshold=` としてログに表示されることを確認する
