@@ -19,6 +19,12 @@ M5Stack Unit Wateringを使い、土壌水分のADC値をHome Assistantに蓄積
 ## 注意
 初期段階では自動散水しない。水漏れ・過散水を避けるため、まず手動操作で確認する。
 
+## Home Assistant 自動登録
+- 電源投入後に MQTT へ接続すると、Home Assistant の MQTT discovery 用 config を publish する
+- デバイス識別子、topic、`unique_id` は Atom の Wi-Fi MAC アドレスから自動生成する
+- 同じ MQTT ブローカに複数の Atom を接続しても、別デバイスとして自動登録される
+- 追加の Atom ごとに source 内の `DeviceId` を書き換える必要はない
+
 ## Home Assistant から散水閾値を変更する
 - MQTT discovery により `Watering Threshold` の `number` エンティティが作成される
 - Home Assistant から閾値を変更すると、デバイスの散水判定に反映される
