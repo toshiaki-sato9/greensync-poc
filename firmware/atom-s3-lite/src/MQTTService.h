@@ -6,7 +6,7 @@ class MQTTService {
 public:
   void begin(WateringSettings* settings);
   void loop();
-  void publishDiscovery();
+  bool publishDiscovery();
   bool publishState(int raw, int moisturePercent, int rssi, bool watered);
   bool publishSettings();
 
