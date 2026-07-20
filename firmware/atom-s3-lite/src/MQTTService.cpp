@@ -1,4 +1,5 @@
 #include "MQTTService.h"
+#include "Config.h"
 #include "Secrets.h"
 #include "WateringSettings.h"
 #include <Arduino.h>
@@ -18,6 +19,9 @@ char deviceName[48];
 char stateTopic[80];
 char thresholdStateTopic[96];
 char thresholdSetTopic[96];
+unsigned long lastConnectAttemptAtMs = 0;
+bool connectionAttempted = false;
+bool wasConnected = false;
 
 void initializeDeviceIdentity() {
   char hardwareId[13];
@@ -112,34 +116,68 @@ void MQTTService::begin(WateringSettings* settings) {
   Serial.print(deviceId);
   Serial.print(", bufferBytes=");
   Serial.println(client.getBufferSize());
-  connect();
 }
 
 void MQTTService::loop() {
-  if (!client.connected()) connect();
+  const bool wifiConnected = WiFi.status() == WL_CONNECTED;
+  const bool mqttConnected = client.connected();
+  const unsigned long nowMs = millis();
+
+  if (!wifiConnected) {
+    if (mqttConnected) {
+      client.disconnect();
+    }
+    if (wasConnected) {
+      Serial.println("MQTT disconnected because WiFi is unavailable");
+    }
+    wasConnected = false;
+    connectionAttempted = false;
+    return;
+  }
+
+  if (!mqttConnected) {
+    if (wasConnected) {
+      Serial.println("MQTT connection lost; scheduling reconnect");
+      wasConnected = false;
+      connectionAttempted = false;
+    }
+
+    if (!connectionAttempted ||
+        nowMs - lastConnectAttemptAtMs >=
+            static_cast<unsigned long>(Config::MqttReconnectIntervalMs)) {
+      connect();
+    }
+    return;
+  }
+
+  wasConnected = true;
   client.loop();
 }
 
-void MQTTService::connect() {
-  while (!client.connected()) {
-    Serial.print("Connecting MQTT...");
-    if (client.connect(deviceId)) {
-      Serial.println("connected");
-      const bool subscribed = client.subscribe(thresholdSetTopic);
-      Serial.print("MQTT subscribe topic=");
-      Serial.print(thresholdSetTopic);
-      Serial.print(", result=");
-      Serial.println(subscribed ? "OK" : "FAILED");
+bool MQTTService::connect() {
+  lastConnectAttemptAtMs = millis();
+  connectionAttempted = true;
 
-      const bool discoveryPublished = publishDiscovery();
-      Serial.print("MQTT Discovery summary=");
-      Serial.println(discoveryPublished ? "ALL OK" : "FAILED");
-    } else {
-      Serial.print("failed, rc=");
-      Serial.println(client.state());
-      delay(2000);
-    }
+  Serial.print("MQTT connection attempt. clientId=");
+  Serial.println(deviceId);
+  if (!client.connect(deviceId)) {
+    Serial.print("MQTT connection failed. rc=");
+    Serial.println(client.state());
+    return false;
   }
+
+  wasConnected = true;
+  Serial.println("MQTT connected");
+  const bool subscribed = client.subscribe(thresholdSetTopic);
+  Serial.print("MQTT subscribe topic=");
+  Serial.print(thresholdSetTopic);
+  Serial.print(", result=");
+  Serial.println(subscribed ? "OK" : "FAILED");
+
+  const bool discoveryPublished = publishDiscovery();
+  Serial.print("MQTT Discovery summary=");
+  Serial.println(discoveryPublished ? "ALL OK" : "FAILED");
+  return subscribed && discoveryPublished;
 }
 
 bool MQTTService::publishDiscovery() {
