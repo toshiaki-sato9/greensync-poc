@@ -2,6 +2,7 @@
 #include <M5Unified.h>
 
 #include "Config.h"
+#include "FirmwareInfo.h"
 #include "MoistureSensor.h"
 #include "PumpController.h"
 #include "WateringSettings.h"
@@ -87,7 +88,9 @@ void setup() {
   pump.off();
 
   Serial.println();
-  Serial.println("===== GreenSync Firmware v0.2.0 MQTT =====");
+  Serial.print("===== GreenSync Firmware v");
+  Serial.print(FirmwareInfo::Version);
+  Serial.println(" MQTT =====");
 
   settings.begin();
   wifi.begin();

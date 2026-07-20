@@ -1,4 +1,5 @@
 #include "MQTTService.h"
+#include "FirmwareInfo.h"
 #include "Secrets.h"
 #include "WateringSettings.h"
 #include <Arduino.h>
@@ -18,6 +19,7 @@ char deviceName[48];
 char stateTopic[80];
 char thresholdStateTopic[96];
 char thresholdSetTopic[96];
+char firmwareVersionTopic[96];
 
 void initializeDeviceIdentity() {
   char hardwareId[13];
@@ -35,6 +37,8 @@ void initializeDeviceIdentity() {
            "greensync/atom-s3-%s/threshold/state", hardwareId);
   snprintf(thresholdSetTopic, sizeof(thresholdSetTopic),
            "greensync/atom-s3-%s/threshold/set", hardwareId);
+  snprintf(firmwareVersionTopic, sizeof(firmwareVersionTopic),
+           "greensync/atom-s3-%s/ota/version", hardwareId);
 }
 
 bool publishRetained(const char* label, const char* topic, const char* payload) {
@@ -65,6 +69,14 @@ bool publishThresholdState() {
   snprintf(payload, sizeof(payload), "{\"wateringThreshold\":%d}",
            wateringSettings->wateringThresholdPercent());
   return publishRetained("threshold state", thresholdStateTopic, payload);
+}
+
+bool publishFirmwareVersion() {
+  char payload[160];
+  snprintf(payload, sizeof(payload),
+           "{\"version\":\"%s\",\"hardware\":\"%s\"}",
+           FirmwareInfo::Version, FirmwareInfo::Hardware);
+  return publishRetained("firmware version", firmwareVersionTopic, payload);
 }
 
 void onMessage(char* topic, byte* payload, unsigned int length) {
@@ -134,6 +146,7 @@ void MQTTService::connect() {
       const bool discoveryPublished = publishDiscovery();
       Serial.print("MQTT Discovery summary=");
       Serial.println(discoveryPublished ? "ALL OK" : "FAILED");
+      publishFirmwareVersion();
     } else {
       Serial.print("failed, rc=");
       Serial.println(client.state());
@@ -220,18 +233,40 @@ const bool rssiOk =
       deviceIdentifier, thresholdSetTopic, thresholdStateTopic, "%",
       deviceIdentifier, deviceName);
 
-const bool thresholdOk =
-  publishRetained("discovery threshold", thresholdConfigTopic, thresholdConfig);
+  const bool thresholdOk =
+      publishRetained("discovery threshold", thresholdConfigTopic, thresholdConfig);
+
+  char firmwareConfigTopic[128];
+  snprintf(firmwareConfigTopic, sizeof(firmwareConfigTopic),
+           "homeassistant/sensor/%s/firmware_version/config",
+           deviceIdentifier);
+
+  char firmwareConfig[768];
+  snprintf(
+      firmwareConfig, sizeof(firmwareConfig),
+      "{\"name\":\"Firmware Version\",\"unique_id\":\"%s_firmware_version\","
+      "\"state_topic\":\"%s\",\"value_template\":\"{{ value_json.version }}\","
+      "\"icon\":\"mdi:chip\",\"entity_category\":\"diagnostic\","
+      "\"device\":{\"identifiers\":[\"%s\"],\"name\":\"%s\","
+      "\"manufacturer\":\"GreenSync\",\"model\":\"ATOMS3 Lite Watering Unit\","
+      "\"sw_version\":\"%s\"}}",
+      deviceIdentifier, firmwareVersionTopic, deviceIdentifier, deviceName,
+      FirmwareInfo::Version);
+
+  const bool firmwareOk =
+      publishRetained("discovery firmware", firmwareConfigTopic, firmwareConfig);
 
   const bool thresholdStateOk = publishThresholdState();
-  return moistureOk && wateredOk && rssiOk && thresholdOk && thresholdStateOk;
+  return moistureOk && wateredOk && rssiOk && thresholdOk && firmwareOk &&
+         thresholdStateOk;
 }
 
 bool MQTTService::publishState(int raw, int moisturePercent, int rssi, bool watered) {
-  char payload[256];
+  char payload[320];
   snprintf(payload, sizeof(payload),
-    "{\"deviceId\":\"%s\",\"raw\":%d,\"moisture\":%d,\"rssi\":%d,\"watered\":%s,\"wateringThreshold\":%d}",
-    deviceId, raw, moisturePercent, rssi, watered ? "true" : "false",
+    "{\"deviceId\":\"%s\",\"firmwareVersion\":\"%s\",\"raw\":%d,\"moisture\":%d,\"rssi\":%d,\"watered\":%s,\"wateringThreshold\":%d}",
+    deviceId, FirmwareInfo::Version, raw, moisturePercent, rssi,
+    watered ? "true" : "false",
     wateringSettings != nullptr ? wateringSettings->wateringThresholdPercent() : 0);
 
   Serial.print("Publish: ");
