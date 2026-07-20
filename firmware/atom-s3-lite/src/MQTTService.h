@@ -11,5 +11,5 @@ public:
   bool publishSettings();
 
 private:
-  void connect();
+  bool connect();
 };
