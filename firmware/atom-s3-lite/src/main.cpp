@@ -96,6 +96,7 @@ void setup() {
 
 void loop() {
   M5.update();
+  wifi.loop();
   mqtt.loop();
   const unsigned long nowMs = millis();
   bool shouldPublish = false;
