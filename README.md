@@ -9,6 +9,7 @@ PoC-001:
 - Evaluate soil moisture recovery after watering
 
 Firmware release uploads are documented in `docs/ota-firmware-update-spec.md`.
+The build-to-deployment runbook is `docs/ota-operation-guide.md`.
 Use `scripts/publish-firmware.sh` to validate or upload application binaries
 from a PlatformIO build directory.
 
