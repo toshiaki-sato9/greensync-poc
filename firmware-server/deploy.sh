@@ -9,6 +9,7 @@ HARDWARE_ID="m5stack-atoms3-lite"
 CHANNEL="stable"
 MQTT_HOST="${GREENSYNC_MQTT_HOST:-192.168.1.35}"
 MQTT_PORT="${GREENSYNC_MQTT_PORT:-1883}"
+FIRMWARE_SERVER_URL="${GREENSYNC_FIRMWARE_SERVER_URL:-https://192.168.1.35:8443/greensync/ota}"
 
 usage() {
   cat <<'EOF'
@@ -88,7 +89,8 @@ echo "  firmware: $firmware_file"
 
 request_id="deploy-${version}-${device_id}-$(date -u +%Y%m%dT%H%M%SZ)"
 command_topic="greensync/atom-s3-${device_id}/ota/command"
-command_payload="{\"action\":\"install\",\"requestId\":\"$request_id\",\"targetVersion\":\"$version\"}"
+manifest_url="${FIRMWARE_SERVER_URL%/}/api/v1/releases/$HARDWARE_ID/$version/manifest.json"
+command_payload="{\"action\":\"install\",\"requestId\":\"$request_id\",\"targetVersion\":\"$version\",\"manifestUrl\":\"$manifest_url\"}"
 mqtt_arguments=(-h "$MQTT_HOST" -p "$MQTT_PORT")
 
 if [[ -n "${GREENSYNC_MQTT_USERNAME:-}" ]]; then

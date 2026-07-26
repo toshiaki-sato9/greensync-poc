@@ -96,7 +96,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for command in scp curl; do
+for command in scp curl python3; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "Error: required command is unavailable: $command" >&2
     exit 1
@@ -117,7 +117,58 @@ fi
 echo "Fetching Firmware Server CA certificate..."
 scp "$HOME_ASSISTANT_SSH:$REMOTE_CA_CERT" "$ca_certificate"
 
-if [[ -z "${GREENSYNC_FIRMWARE_SERVER_TOKEN:-}" ]]; then
+release_manifest="$temporary_directory/release-manifest.json"
+release_url="${FIRMWARE_SERVER_URL%/}/api/v1/releases/$hardware_id/$version/manifest.json"
+http_status="$(curl \
+  --silent \
+  --show-error \
+  --cacert "$ca_certificate" \
+  --output "$release_manifest" \
+  --write-out '%{http_code}' \
+  "$release_url")"
+
+skip_publish=false
+if [[ "$http_status" == "200" ]]; then
+  if python3 - "$release_manifest" "$firmware_path" "$hardware_id" "$version" <<'PY'
+import hashlib
+import json
+import pathlib
+import sys
+
+manifest_path, firmware_path, hardware, version = sys.argv[1:]
+manifest = json.loads(pathlib.Path(manifest_path).read_text())
+firmware = pathlib.Path(firmware_path).read_bytes()
+expected = {
+    "hardware": hardware,
+    "version": version,
+    "size": len(firmware),
+    "sha256": hashlib.sha256(firmware).hexdigest(),
+}
+mismatches = [
+    f"{key}: server={manifest.get(key)!r}, local={value!r}"
+    for key, value in expected.items()
+    if manifest.get(key) != value
+]
+if mismatches:
+    print("Error: the immutable release exists with different content:", file=sys.stderr)
+    for mismatch in mismatches:
+        print(f"  {mismatch}", file=sys.stderr)
+    print("Use a new version for the changed binary.", file=sys.stderr)
+    raise SystemExit(1)
+PY
+  then
+    echo "Release $version already exists with the same size and SHA-256; skipping upload."
+    skip_publish=true
+  else
+    exit 1
+  fi
+elif [[ "$http_status" != "404" ]]; then
+  echo "Error: release lookup returned HTTP $http_status" >&2
+  cat "$release_manifest" >&2
+  exit 1
+fi
+
+if [[ "$skip_publish" == false && -z "${GREENSYNC_FIRMWARE_SERVER_TOKEN:-}" ]]; then
   echo
   echo "On the Home Assistant server, obtain the token with:"
   echo "  sudo cat /opt/greensync/firmware-server/secrets/deployment-token.txt"
@@ -126,7 +177,7 @@ if [[ -z "${GREENSYNC_FIRMWARE_SERVER_TOKEN:-}" ]]; then
   echo
 fi
 
-if [[ -z "$GREENSYNC_FIRMWARE_SERVER_TOKEN" ]]; then
+if [[ "$skip_publish" == false && -z "$GREENSYNC_FIRMWARE_SERVER_TOKEN" ]]; then
   echo "Error: deployment token must not be empty" >&2
   exit 1
 fi
@@ -135,13 +186,15 @@ export GREENSYNC_FIRMWARE_SERVER_URL="$FIRMWARE_SERVER_URL"
 export GREENSYNC_FIRMWARE_SERVER_TOKEN
 export GREENSYNC_FIRMWARE_CA_CERT="$ca_certificate"
 
-echo "Publishing firmware..."
-"$publisher" \
-  "$firmware_directory" \
-  --pattern "$firmware_pattern" \
-  --version "$version" \
-  --hardware "$hardware_id" \
-  --channel "$channel"
+if [[ "$skip_publish" == false ]]; then
+  echo "Publishing firmware..."
+  "$publisher" \
+    "$firmware_directory" \
+    --pattern "$firmware_pattern" \
+    --version "$version" \
+    --hardware "$hardware_id" \
+    --channel "$channel"
+fi
 
 manifest_url="${FIRMWARE_SERVER_URL%/}/api/v1/channels/$hardware_id/$channel/manifest.json"
 echo
