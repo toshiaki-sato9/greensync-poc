@@ -7,12 +7,14 @@
 #include "WateringSettings.h"
 #include "WiFiService.h"
 #include "MQTTService.h"
+#include "OtaService.h"
 
 MoistureSensor moistureSensor;
 PumpController pump;
 WateringSettings settings;
 WiFiService wifi;
 MQTTService mqtt;
+OtaService ota;
 
 namespace {
 enum class ControllerState {
@@ -87,11 +89,14 @@ void setup() {
   pump.off();
 
   Serial.println();
-  Serial.println("===== GreenSync Firmware v0.2.0 MQTT =====");
+  Serial.print("===== GreenSync Firmware v");
+  Serial.print(Config::FirmwareVersion);
+  Serial.println(" MQTT + OTA =====");
 
   settings.begin();
   wifi.begin();
-  mqtt.begin(&settings);
+  mqtt.begin(&settings, &ota);
+  ota.begin(&mqtt);
 }
 
 void loop() {
@@ -113,6 +118,15 @@ void loop() {
     shouldPublish = true;
   }
 
+  if (ota.hasPendingCommand() && controllerState == ControllerState::Watering) {
+    stopWatering();
+    shouldPublish = true;
+  }
+  ota.loop(controllerState == ControllerState::Idle,
+           controllerState == ControllerState::EmergencyStop);
+  const bool wateringInhibited =
+      ota.isBusy() || ota.isPendingVerification() || ota.hasPendingCommand();
+
   if (!hasSensorSample ||
       nowMs - lastTelemetryAtMs >= static_cast<unsigned long>(Config::TelemetryIntervalMs)) {
     lastTelemetryAtMs = nowMs;
@@ -127,7 +141,7 @@ void loop() {
     Serial.print("%, state=");
     Serial.println(stateName(controllerState));
 
-    if (controllerState == ControllerState::Idle &&
+    if (!wateringInhibited && controllerState == ControllerState::Idle &&
         lastPercent < settings.wateringThresholdPercent()) {
       startWatering(nowMs);
     }
