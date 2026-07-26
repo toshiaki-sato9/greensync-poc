@@ -81,6 +81,14 @@ The device ID may also be passed as `atom-s3-4c1f980af6e8` or `greensync-atom-s3
 
 ### Publish only
 
+For the default AtomS3 Lite build, the repository-root convenience command only requires the release version:
+
+```bash
+./upload.sh 0.3.2
+```
+
+An alternative application binary can be supplied as the second argument. This command uploads and displays the manifest but does not send an MQTT install command.
+
 For the standard Home Assistant deployment, run the wrapper from the development PC. Connection settings are defined at the top of the script. It fetches the server CA certificate, prompts for the deployment token without echoing it, uploads the application image, and retrieves the published manifest.
 
 ```bash
