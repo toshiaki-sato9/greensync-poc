@@ -28,6 +28,7 @@ namespace {
 constexpr size_t MaxCommandBytes = 768;
 constexpr size_t MaxManifestBytes = 4096;
 constexpr size_t DownloadBufferBytes = 4096;
+uint8_t downloadBuffer[DownloadBufferBytes];
 constexpr time_t MinimumValidEpoch = 1704067200;  // 2024-01-01T00:00:00Z
 constexpr unsigned long TimeSyncTimeoutMs = 15000;
 
@@ -180,6 +181,7 @@ bool OtaService::fetchAndInstall(const char* manifestUrl, const char* requestId,
   publish("CHECKING", requestId, targetVersion, 0, nullptr, "Fetching manifest");
   WiFiClientSecure tlsClient;
   tlsClient.setCACert(OTA_CA_CERT);
+  tlsClient.setHandshakeTimeout(Config::OtaHttpTimeoutMs / 1000);
   HTTPClient http;
   http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
   http.setTimeout(Config::OtaHttpTimeoutMs);
@@ -254,6 +256,7 @@ bool OtaService::downloadFirmware(const char* url, size_t expectedSize,
                                   const char* targetVersion) {
   WiFiClientSecure tlsClient;
   tlsClient.setCACert(OTA_CA_CERT);
+  tlsClient.setHandshakeTimeout(Config::OtaHttpTimeoutMs / 1000);
   HTTPClient http;
   http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
   http.setTimeout(Config::OtaHttpTimeoutMs);
@@ -287,7 +290,6 @@ bool OtaService::downloadFirmware(const char* url, size_t expectedSize,
   mbedtls_sha256_init(&shaContext);
   mbedtls_sha256_starts_ret(&shaContext, 0);
   WiFiClient* stream = http.getStreamPtr();
-  uint8_t buffer[DownloadBufferBytes];
   size_t written = 0;
   int lastProgress = -1;
   while (written < expectedSize) {
@@ -297,10 +299,12 @@ bool OtaService::downloadFirmware(const char* url, size_t expectedSize,
       delay(1);
       continue;
     }
-    const size_t requested = min(available, min(sizeof(buffer), expectedSize - written));
-    const int read = stream->readBytes(buffer, requested);
-    if (read <= 0 || Update.write(buffer, read) != static_cast<size_t>(read)) break;
-    mbedtls_sha256_update_ret(&shaContext, buffer, read);
+    const size_t requested =
+        min(available, min(sizeof(downloadBuffer), expectedSize - written));
+    const int read = stream->readBytes(downloadBuffer, requested);
+    if (read <= 0 ||
+        Update.write(downloadBuffer, read) != static_cast<size_t>(read)) break;
+    mbedtls_sha256_update_ret(&shaContext, downloadBuffer, read);
     written += read;
     const int progress = static_cast<int>((written * 100) / expectedSize);
     if (progress >= lastProgress + 10) {
