@@ -63,9 +63,11 @@ pio device monitor -b 115200
 正常時は、概ね次のログになる。
 
 ```text
+WiFi connection attempt. SSID=...
 WiFi connected. IP=...
 MQTT configuration: broker=...:1883, clientId=greensync-atom-s3-<hardware_id>, bufferBytes=1024
-Connecting MQTT...connected
+MQTT connection attempt. clientId=greensync-atom-s3-<hardware_id>
+MQTT connected
 MQTT subscribe topic=greensync/atom-s3-<hardware_id>/threshold/set, result=OK
 MQTT publish [discovery moisture] ... result=OK
 MQTT publish [discovery pump] ... result=OK

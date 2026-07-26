@@ -91,6 +91,8 @@ flowchart TD
 | `WateringDurationMs` | 3000 ms | 1回の散水時間 |
 | `TelemetryIntervalMs` | 10000 ms | 計測・通知周期 |
 | `EmergencyStopHoldMs` | 1500 ms | 緊急停止を検出する長押し時間 |
+| `WiFiReconnectIntervalMs` | 10000 ms | Wi-Fi再接続試行間隔 |
+| `MqttReconnectIntervalMs` | 5000 ms | MQTT再接続試行間隔 |
 
 注: 永続設定のデフォルト値30%は `WateringSettings.cpp` にも定義されている。現在 `Config::WateringThresholdPercent` は実行時の初期化処理から直接参照されていない。
 
@@ -149,9 +151,9 @@ stateDiagram-v2
 2. M5Unified を初期化する。
 3. ポンプGPIOを出力に設定し、ポンプをOFFにする。
 4. NVSから散水閾値を読み込む。
-5. Wi-Fiへ接続する。
-6. MQTT Brokerへ接続する。
-7. 閾値設定トピックを購読する。
+5. Wi-Fiの初回接続を開始し、接続完了を待たずに起動処理を継続する。
+6. MQTTを初期化する。Broker接続はメインループ内でWi-Fi接続後に開始する。
+7. MQTT接続成功後、閾値設定トピックを購読する。
 8. Home Assistant Discovery設定をMQTT Brokerへ送信する。
 9. BrokerがDiscovery設定をHome Assistantへ配信し、Home Assistantがデバイスと各エンティティを自動登録する。
 10. 現在の散水閾値を送信し、登録された閾値エンティティの状態を初期化する。
@@ -184,32 +186,45 @@ sequenceDiagram
     NVS-->>Settings: 保存値または30
     Settings->>Settings: 0～100に補正
     Main->>WiFi: begin()
-    loop 未接続
-        WiFi->>WiFi: 500ms間隔で接続待ち
-    end
+    WiFi->>WiFi: 接続試行を開始
     Main->>MQTT: begin(Settingsのポインタ)
-    MQTT->>Broker: connect(DeviceId)
-    loop 接続失敗
-        MQTT->>MQTT: 2000ms待機して再試行
+    Main-->>Main: setup完了
+    loop main.loop
+        Main->>WiFi: loop()
+        alt Wi-Fi未接続かつ前回試行から10秒以上
+            WiFi->>WiFi: 接続を1回試行
+        else Wi-Fi接続完了
+            WiFi-->>Main: 接続状態を通知
+        end
+        Main->>MQTT: loop()
+        alt Wi-Fi接続済みかつMQTT未接続、前回試行から5秒以上
+            MQTT->>Broker: connect(DeviceId)
+            alt 接続成功
+                MQTT->>Broker: subscribe(threshold/set)
+                MQTT->>Broker: 4エンティティのDiscovery設定をretain送信
+                Broker-->>HA: homeassistant配下のDiscovery設定を配信
+                HA->>HA: デバイスと4エンティティを自動登録
+                MQTT->>Broker: 現在の閾値をretain送信
+                Broker-->>HA: 閾値の初期状態を配信
+                HA->>HA: Watering Thresholdの状態を更新
+            else 接続失敗
+                MQTT-->>Main: メインループへ戻る
+            end
+        end
     end
-    MQTT->>Broker: subscribe(threshold/set)
-    MQTT->>Broker: 4エンティティのDiscovery設定をretain送信
-    Broker-->>HA: homeassistant配下のDiscovery設定を配信
-    HA->>HA: デバイスと4エンティティを自動登録
-    MQTT->>Broker: 現在の閾値をretain送信
-    Broker-->>HA: 閾値の初期状態を配信
-    HA->>HA: Watering Thresholdの状態を更新
 ```
 
 ### 8.2 メインループ
 
 メインループは次の優先順で処理する。
 
-1. ボタン状態とMQTT受信処理を更新する。
-2. BtnA長押しを検出した場合、緊急停止する。
-3. 散水時間が満了した場合、散水を停止する。
-4. 初回または10秒周期で水分を計測し、必要に応じて散水を開始する。
-5. 状態に変化があった場合、または周期計測を行った場合、MQTT状態を送信する。
+1. ボタン状態を更新する。
+2. Wi-Fi接続状態を更新し、必要な場合のみ10秒間隔で接続を1回試行する。
+3. MQTT受信処理を更新し、必要な場合のみ5秒間隔で接続を1回試行する。
+4. BtnA長押しを検出した場合、緊急停止する。
+5. 散水時間が満了した場合、散水を停止する。
+6. 初回または10秒周期で水分を計測し、必要に応じて散水を開始する。
+7. 状態に変化があった場合、または周期計測を行った場合、MQTT状態を送信する。
 
 ### 8.3 周期計測・自動散水シーケンス
 
@@ -349,22 +364,25 @@ sequenceDiagram
     participant Broker as MQTT Broker
 
     Loop->>MQTT: loop()
-    alt MQTT未接続
-        loop 接続成功まで
-            MQTT->>Broker: connect(DeviceId)
-            alt 接続失敗
-                MQTT->>MQTT: delay(2000)
-            else 接続成功
-                MQTT->>Broker: subscribe(threshold/set)
-                MQTT->>Broker: Discovery設定をretain送信
-                MQTT->>Broker: 現在の閾値をretain送信
-            end
+    alt Wi-Fi未接続
+        MQTT-->>Loop: 接続試行せず戻る
+    else MQTT未接続かつ再試行時刻前
+        MQTT-->>Loop: 接続試行せず戻る
+    else MQTT未接続かつ前回試行から5秒以上
+        MQTT->>Broker: connect(DeviceId)を1回試行
+        alt 接続成功
+            MQTT->>Broker: subscribe(threshold/set)
+            MQTT->>Broker: Discovery設定をretain送信
+            MQTT->>Broker: 現在の閾値をretain送信
+        else 接続失敗
+            MQTT-->>Loop: 次回試行を待たず戻る
         end
+    else MQTT接続済み
+        MQTT->>Broker: client.loop()
     end
-    MQTT->>Broker: client.loop()
 ```
 
-再接続処理は接続成功まで戻らないブロッキング方式である。この間はボタン監視、散水時間満了判定、センサ計測を実行できない。
+再接続は1回の試行後にメインループへ戻る。接続成功まで待つループや固定 `delay()` は使用しないため、通信障害中もボタン監視、散水時間満了判定、センサ計測を継続する。
 
 ## 9. 水分率変換設計
 
@@ -451,8 +469,8 @@ Discovery設定はMQTT接続時および再接続時にretain付きで送信す�
 
 | 事象 | 現在の動作 |
 |---|---|
-| Wi-Fi接続失敗 | 起動処理内で500ms間隔の再試行を継続する |
-| MQTT接続失敗 | 2秒間隔の再試行を接続成功まで継続する |
+| Wi-Fi接続失敗 | 起動を継続し、メインループ内で10秒間隔に1回再試行する |
+| MQTT接続失敗 | メインループ内で5秒間隔に1回再試行する |
 | 閾値が0未満または100超 | 0～100へ補正して保存する |
 | 閾値ペイロードが数値でない | `atoi()` により0として扱う |
 | BtnA長押し | ポンプを即時OFFにし、緊急停止状態へ遷移する |
@@ -460,13 +478,12 @@ Discovery設定はMQTT接続時および再接続時にretain付きで送信す�
 
 ## 13. 実装上の制約・留意事項
 
-1. Wi-Fi初期接続とMQTT接続・再接続はブロッキング処理である。通信障害中は緊急停止ボタンや散水タイマーを処理できない。
-2. 緊急停止状態をMQTTで直接公開していないため、Home Assistantから通常停止と緊急停止を区別できない。
-3. 水分率算出時にADCを再読出しするため、`raw` と `moisture` は同一サンプルから算出されない。
-4. 自動散水後の再散水禁止時間やヒステリシスがないため、土壌への浸透前に散水を繰り返す可能性がある。
-5. `PumpController::waterForMs()` はブロッキングAPIだが、現在のメイン制御からは使用していない。
-6. MQTT接続にはユーザー名、パスワード、TLSを使用していない。
-7. 閾値コマンドは厳密な数値形式検証を行っていない。
+1. 緊急停止状態をMQTTで直接公開していないため、Home Assistantから通常停止と緊急停止を区別できない。
+2. 水分率算出時にADCを再読出しするため、`raw` と `moisture` は同一サンプルから算出されない。
+3. 自動散水後の再散水禁止時間やヒステリシスがないため、土壌への浸透前に散水を繰り返す可能性がある。
+4. `PumpController::waterForMs()` はブロッキングAPIだが、現在のメイン制御からは使用していない。
+5. MQTT接続にはユーザー名、パスワード、TLSを使用していない。
+6. 閾値コマンドは厳密な数値形式検証を行っていない。
 
 ## 14. テスト観点
 
