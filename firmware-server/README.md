@@ -69,6 +69,18 @@ curl --cacert firmware-server/certs/server.crt \
 
 ## Publish a firmware build
 
+### Publish and deploy to one device
+
+From the development PC, specify the release version and the target device's 12-digit ID. This publishes the configured application binary and sends an MQTT `install` command only to that device.
+
+```bash
+firmware-server/deploy.sh 0.3.1 4c1f980af6e8
+```
+
+The device ID may also be passed as `atom-s3-4c1f980af6e8` or `greensync-atom-s3-4c1f980af6e8`. Set `GREENSYNC_FIRMWARE_FILE` when deploying a binary outside the default PlatformIO build path. MQTT credentials, when required, are supplied through `GREENSYNC_MQTT_USERNAME` and `GREENSYNC_MQTT_PASSWORD`.
+
+### Publish only
+
 For the standard Home Assistant deployment, run the wrapper from the development PC. Connection settings are defined at the top of the script. It fetches the server CA certificate, prompts for the deployment token without echoing it, uploads the application image, and retrieves the published manifest.
 
 ```bash
