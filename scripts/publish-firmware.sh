@@ -2,17 +2,20 @@
 
 set -euo pipefail
 
+# Release settings. Update this value before publishing a new version.
+FIRMWARE_VERSION="0.3.0"
+
 usage() {
   cat <<'EOF'
 Usage:
-  publish-firmware.sh DIRECTORY --hardware ID --version VERSION [options]
+  publish-firmware.sh DIRECTORY --hardware ID [options]
 
 Required:
   DIRECTORY              Directory containing application firmware binaries
   --hardware ID          Manifest hardware ID, for example m5stack-atoms3-lite
-  --version VERSION      Release version, for example 0.3.0
 
 Options:
+  --version VERSION      Temporarily override FIRMWARE_VERSION
   --channel CHANNEL      Release channel (default: stable)
   --pattern GLOB         Binary filename pattern (default: firmware*.bin)
   --api-url URL          Firmware Server base URL
@@ -57,7 +60,7 @@ sha256_file() {
 
 directory=""
 hardware=""
-version=""
+version="$FIRMWARE_VERSION"
 channel="stable"
 pattern="firmware*.bin"
 api_url="${GREENSYNC_FIRMWARE_SERVER_URL:-}"
@@ -113,7 +116,7 @@ done
 [[ -d "$directory" ]] || fail "directory does not exist: $directory"
 [[ -n "$hardware" ]] || fail "--hardware is required"
 [[ "$hardware" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || fail "invalid hardware ID: $hardware"
-[[ -n "$version" ]] || fail "--version is required"
+[[ -n "$version" ]] || fail "FIRMWARE_VERSION must not be empty"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]] || fail "version must be SemVer-like: $version"
 [[ "$channel" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || fail "invalid channel: $channel"
 [[ "$pattern" != */* ]] || fail "--pattern must be a filename glob, not a path"

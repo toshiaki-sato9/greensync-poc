@@ -208,13 +208,18 @@ Unit WateringをAtomS3UのGroveへ接続する場合、公式pin map上はG1/G2�
 
 開発PCまたはCIは `scripts/publish-firmware.sh` を使用し、指定ディレクトリ内のアプリケーションバイナリをFirmware Server管理APIへアップロードする。
 
+アップロード前にスクリプト冒頭の `FIRMWARE_VERSION` を公開するバージョンへ変更する。
+
+```bash
+FIRMWARE_VERSION="0.3.0"
+```
+
 ```bash
 export GREENSYNC_FIRMWARE_SERVER_URL='https://homeassistant.local:8443/greensync/ota'
 export GREENSYNC_FIRMWARE_SERVER_TOKEN='replace-with-deployment-token'
 
 scripts/publish-firmware.sh firmware/atom-s3-lite/.pio/build/m5stack-atoms3 \
   --hardware m5stack-atoms3-lite \
-  --version 0.3.0 \
   --channel stable
 ```
 
@@ -225,9 +230,10 @@ scripts/publish-firmware.sh firmware/atom-s3-lite/.pio/build/m5stack-atoms3 \
 ```bash
 scripts/publish-firmware.sh path/to/binaries \
   --hardware m5stack-atoms3-lite \
-  --version 0.3.0 \
   --dry-run
 ```
+
+CIなどでファイルを書き換えず一時的に指定する必要がある場合に限り、`--version` で冒頭変数を上書きできる。
 
 管理API契約:
 
