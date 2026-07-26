@@ -10,6 +10,7 @@
 #include <WiFiClientSecure.h>
 #include <esp_ota_ops.h>
 #include <mbedtls/sha256.h>
+#include <time.h>
 
 #ifndef OTA_BASE_URL
 #define OTA_BASE_URL ""
@@ -27,6 +28,25 @@ namespace {
 constexpr size_t MaxCommandBytes = 768;
 constexpr size_t MaxManifestBytes = 4096;
 constexpr size_t DownloadBufferBytes = 4096;
+constexpr time_t MinimumValidEpoch = 1704067200;  // 2024-01-01T00:00:00Z
+constexpr unsigned long TimeSyncTimeoutMs = 15000;
+
+bool ensureSystemTime() {
+  if (time(nullptr) >= MinimumValidEpoch) return true;
+
+  Serial.println("Synchronizing clock for TLS certificate validation...");
+  configTime(0, 0, "pool.ntp.org", "time.cloudflare.com", "time.google.com");
+  const unsigned long startedAtMs = millis();
+  while (millis() - startedAtMs < TimeSyncTimeoutMs) {
+    if (time(nullptr) >= MinimumValidEpoch) {
+      Serial.println("Clock synchronized");
+      return true;
+    }
+    delay(100);
+  }
+  Serial.println("Clock synchronization timed out");
+  return false;
+}
 
 bool startsWithAllowedBase(const char* url) {
   const size_t baseLength = strlen(OTA_BASE_URL);
@@ -152,6 +172,10 @@ bool OtaService::fetchAndInstall(const char* manifestUrl, const char* requestId,
     fail(requestId, targetVersion, "TLS_ERROR", "OTA CA certificate is not configured");
     return false;
   }
+  if (!ensureSystemTime()) {
+    fail(requestId, targetVersion, "TIME_SYNC_FAILED", "Could not synchronize clock for TLS");
+    return false;
+  }
 
   publish("CHECKING", requestId, targetVersion, 0, nullptr, "Fetching manifest");
   WiFiClientSecure tlsClient;
@@ -164,6 +188,14 @@ bool OtaService::fetchAndInstall(const char* manifestUrl, const char* requestId,
     return false;
   }
   const int status = http.GET();
+  Serial.print("OTA manifest HTTP status: ");
+  Serial.print(status);
+  if (status < 0) {
+    Serial.print(" (");
+    Serial.print(HTTPClient::errorToString(status));
+    Serial.print(")");
+  }
+  Serial.println();
   if (status != HTTP_CODE_OK) {
     http.end();
     fail(requestId, targetVersion, "DOWNLOAD_FAILED", "Manifest download failed");
@@ -225,7 +257,20 @@ bool OtaService::downloadFirmware(const char* url, size_t expectedSize,
   HTTPClient http;
   http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
   http.setTimeout(Config::OtaHttpTimeoutMs);
-  if (!http.begin(tlsClient, url) || http.GET() != HTTP_CODE_OK ||
+  if (!http.begin(tlsClient, url)) {
+    fail(requestId, targetVersion, "TLS_ERROR", "Could not initialize firmware HTTPS client");
+    return false;
+  }
+  const int firmwareStatus = http.GET();
+  Serial.print("OTA firmware HTTP status: ");
+  Serial.print(firmwareStatus);
+  if (firmwareStatus < 0) {
+    Serial.print(" (");
+    Serial.print(HTTPClient::errorToString(firmwareStatus));
+    Serial.print(")");
+  }
+  Serial.println();
+  if (firmwareStatus != HTTP_CODE_OK ||
       http.getSize() != static_cast<int>(expectedSize)) {
     http.end();
     fail(requestId, targetVersion, "DOWNLOAD_FAILED", "Firmware download failed");
