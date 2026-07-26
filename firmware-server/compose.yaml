@@ -1,0 +1,37 @@
+services:
+  firmware-server:
+    build:
+      context: .
+    image: greensync/firmware-server:local
+    restart: unless-stopped
+    environment:
+      FIRMWARE_SERVER_ADDR: ":8443"
+      FIRMWARE_SERVER_DATA_DIR: /data
+      FIRMWARE_SERVER_PATH_PREFIX: /greensync/ota
+      FIRMWARE_SERVER_PUBLIC_BASE_URL: "${FIRMWARE_SERVER_PUBLIC_BASE_URL:?Set FIRMWARE_SERVER_PUBLIC_BASE_URL}"
+      FIRMWARE_SERVER_TOKEN_FILE: /run/secrets/deployment_token
+      FIRMWARE_SERVER_TLS_CERT_FILE: /run/tls/server.crt
+      FIRMWARE_SERVER_TLS_KEY_FILE: /run/tls/server.key
+      FIRMWARE_SERVER_MAX_UPLOAD_BYTES: "4194304"
+    ports:
+      - "8443:8443"
+    volumes:
+      - firmware-data:/data
+      - ./certs:/run/tls:ro
+    secrets:
+      - deployment_token
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "--spider", "https://127.0.0.1:8443/greensync/ota/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+
+secrets:
+  deployment_token:
+    file: ./secrets/deployment-token.txt
+
+volumes:
+  firmware-data:

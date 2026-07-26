@@ -8,9 +8,24 @@ PoC-001:
 - Control a small pump based on soil moisture threshold
 - Evaluate soil moisture recovery after watering
 
+Firmware release uploads are documented in `docs/ota-firmware-update-spec.md`.
+The build-to-deployment runbook is `docs/ota-operation-guide.md`.
+Use `scripts/publish-firmware.sh` to validate or upload application binaries
+from a PlatformIO build directory.
+
+Open the AtomS3 serial monitor from the repository root with `./monitor.sh`.
+It defaults to `/dev/cu.usbmodem101` at 115200 baud. A different port and baud
+rate can be passed as `./monitor.sh PORT BAUD`.
+
+Before the first firmware upload, store the deployment token in the ignored
+`.secrets/firmware-server-token.txt` file. Subsequent `./upload.sh VERSION`
+commands load it automatically instead of prompting for the token.
+Use `ssh -tt` when retrieving it so remote `sudo` can request its password.
+
+The companion server is in `firmware-server/`. It can run beside Home
+Assistant with Docker Compose and can later be moved to cloud infrastructure
+without changing the release API.
+
 <img width="2826" height="1460" alt="image" src="https://github.com/user-attachments/assets/0c60a154-6079-4348-8941-7845474e578e" />
 
 <img width="1512" height="2016" alt="IMG_0359" src="https://github.com/user-attachments/assets/ab0554c5-23b5-4f76-89a1-dccd839a45af" />
-
-
-
