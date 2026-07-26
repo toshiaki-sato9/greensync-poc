@@ -4,7 +4,8 @@
 
 | 項目 | 内容 |
 |---|---|
-| 対象 | GreenSync ATOMS3 Lite ファームウェア |
+| 初期対象 | GreenSync ATOMS3 Lite ファームウェア |
+| 将来対象 | GreenSync AtomS3U ファームウェア |
 | 対象実装 | `firmware/atom-s3-lite` |
 | 文書種別 | OTA機能仕様 |
 | ステータス | Draft |
@@ -44,6 +45,9 @@
 - Home Assistantは同一Brokerを利用する。
 - OTA機能は現行ファームウェアには未実装である。
 - OTA対応パーティションテーブル、更新用Webサーバー、証明書管理を新たに用意する必要がある。
+- PoCのFirmware ServerはHome Assistantと同一IP上に配置する。サービスのポートとプロセスは分離してよい。
+- 将来はHome AssistantとFirmware Serverをクラウドへ移行するため、配布エンドポイントをファームウェアロジックから分離する。
+- 初期実装はATOMS3 Liteを対象とするが、OTA中核処理はAtomS3Uへ移植可能な構成とする。
 
 ## 5. 基本方式
 
@@ -60,7 +64,31 @@ flowchart LR
     Broker --> HA
 ```
 
-### 5.1 採用理由
+### 5.1 配置構成とエンドポイント切替
+
+PoCではHome AssistantとFirmware Serverを同一IPへ配置する。デバイスはIPアドレスをコードへ直接埋め込まず、論理的な `OtaEndpointConfig` からmanifest URLを組み立てる。
+
+```text
+OtaEndpointConfig
+  baseUrl      = https://<home-assistant-host>:<ota-port>/greensync/ota
+  channel      = stable
+  caProfileId  = local-poc-ca
+```
+
+クラウド移行時は次のように設定のみを差し替え、OTA状態機械、MQTTトピック、manifest形式および更新処理は変更しない。
+
+```text
+OtaEndpointConfig
+  baseUrl      = https://ota.example.com/greensync/ota
+  channel      = stable
+  caProfileId  = production-ca
+```
+
+設定の優先順位は、NVSに保存されたプロビジョニング値、ビルド時デフォルト値の順とする。PoCではビルド時デフォルトを使用してよいが、実装はNVS上書きを受け取れるインターフェースを持つ。エンドポイント更新は認証済みの管理操作またはUSBプロビジョニングに限定し、通常のOTA installコマンドから任意URLへ変更できないようにする。
+
+設定変更時はHTTPS、許可されたホスト・ポート・パスprefix、CAプロファイルを検証してからNVSへ原子的に保存する。不正値または接続確認失敗時は直前の設定を維持する。IPアドレスをHTTPS URLに使用する場合は、そのIPをSANに含む証明書を用意する。可能であればPoC段階からローカルDNS名を使用する。
+
+### 5.2 採用理由
 
 - Home AssistantやMQTT Brokerへ大容量バイナリを流さずに済む。
 - HTTPS配布サーバー側でバージョンとファイルを一元管理できる。
@@ -151,6 +179,31 @@ stateDiagram-v2
 - 配布済みファイルの上書きを禁止する。
 - タイムアウト、再試行回数、最大サイズをデバイス側で制限する。
 
+### 8.4 複数ハードウェア対応
+
+ATOMS3 LiteとAtomS3UはESP32-S3および8MB Flashを採用し、Arduino、ESP-IDF、PlatformIOで開発できるため、HTTPS取得、ハッシュ検証、ESP OTA API、状態機械、MQTT通知は共通化できる。一方、GPIO、USB設定、ボード定義、周辺機器および実効パーティション容量は機種別に扱う。
+
+ファームウェアを次の層へ分離する。
+
+| 層 | 内容 | 共通化 |
+|---|---|---|
+| OTA Core | 状態機械、manifest解析、HTTPS取得、SHA-256、書込み、ロールバック | 共通 |
+| OTA Transport | MQTTコマンド、状態・進捗通知 | 共通 |
+| Endpoint Provider | `baseUrl`、channel、CAプロファイルの解決 | 共通インターフェース |
+| Board Profile | hardware ID、GPIO、ボタン、USB、Flash、パーティション上限 | 機種別 |
+| Build Environment | PlatformIO board、build flags、partition CSV | 機種別 |
+
+初期Board Profileは少なくとも次を持つ。
+
+| Profile | hardware ID | PlatformIO方針 | 備考 |
+|---|---|---|---|
+| ATOMS3 Lite | `m5stack-atoms3-lite` | 現行 `m5stack-atoms3` 環境を基準にする | 現行実装対象 |
+| AtomS3U | `m5stack-atoms3u` | M5Stack公式例に従い `esp32-s3-devkitc-1` とAtomS3U用flagsを使用する | 実機導入時に追加・検証 |
+
+同一ソースから機種別バイナリを生成するが、バイナリの相互互換性は仮定しない。Firmware Serverはhardware IDごとにmanifestとバイナリを分離し、デバイスは自分のBoard Profileとmanifestの `hardware` が完全一致しない限り書込みを開始しない。
+
+Unit WateringをAtomS3UのGroveへ接続する場合、公式pin map上はG1/G2を利用できるが、センサ入力・ポンプ出力の割当、ADC特性、ボタン入力、ポンプOFFレベルを実機で再検証する。OTA中の安全制御はBoard Profile経由でポンプをOFFにできることを移植受け入れ条件とする。
+
 ## 9. MQTTインターフェース
 
 `<device_id>` は個体固有IDを表す。
@@ -178,7 +231,8 @@ stateDiagram-v2
 ```
 
 - `requestId` は要求ごとに一意とし、重複要求を排除する。
-- `manifestUrl` は事前設定されたHTTPSオリジンとパスprefixに一致する場合のみ受理する。
+- `manifestUrl` は省略可能とし、省略時は `OtaEndpointConfig` の `baseUrl` とchannelから組み立てる。指定された場合も、設定済みのHTTPSオリジンとパスprefixに一致する場合のみ受理する。
+- installコマンドは配布エンドポイント自体を変更しない。
 - `targetVersion` とmanifestのバージョンが不一致の場合は拒否する。
 - 許容する `action` は初期実装では `check` と `install` のみとする。
 
@@ -409,6 +463,10 @@ anti-rollbackは脆弱な旧版への復帰を禁止する機能であり、障�
 | Watchdog | 新版初回起動でWatchdog reset | 旧版へロールバックする |
 | MQTT重複 | 同一request IDを再送 | 二重更新を開始しない |
 | 複数台 | 2台へ個別指示 | 指定した個体だけ更新する |
+| エンドポイント切替 | ローカル設定からクラウド設定へ変更 | ファームウェア再ビルドなしで新配布元を使用する |
+| 不正なエンドポイント | HTTP、allowlist外host、未登録CAを設定 | 設定を拒否し直前の有効設定を維持する |
+| 機種別配布 | AtomS3UへATOMS3 Lite用manifestを指示 | `HARDWARE_MISMATCH` で拒否する |
+| AtomS3U移植 | AtomS3U用環境でビルド・更新 | 機種別binで更新し、安全制御とrollbackが動作する |
 
 ## 18. フリートOTA・一括展開仕様
 
@@ -670,6 +728,15 @@ Gitタグ名、ファームウェア内バージョン、manifestの `version` �
 - 更新中のポンプ停止・散水禁止
 - 起動後ヘルスチェックとロールバック検証
 - シリアル復旧手順
+- `OtaEndpointConfig` とローカルFirmware Serverの設定
+- ATOMS3 Lite用Board Profile
+
+### Phase 1.5: AtomS3U移植検証
+
+- AtomS3U用PlatformIO環境とBoard Profile
+- 機種別manifest・バイナリ生成
+- GPIO、ADC、ボタン、USB、8MB OTAパーティションの実機確認
+- AtomS3Uでの正常更新、電源断、rollback、誤機種拒否試験
 
 ### Phase 2: 運用強化
 
@@ -699,11 +766,13 @@ Gitタグ名、ファームウェア内バージョン、manifestの `version` �
 - Canary失敗やロールバック発生時に後続展開を停止できる。
 - オフライン端末が古いretainコマンドを意図せず実行しない。
 - USB経由で復旧できる手順が文書化されている。
+- Firmware Serverのローカル／クラウド切替を再ビルドなしで行える。
+- ATOMS3 LiteとAtomS3Uの成果物がhardware IDで分離され、誤機種用イメージを拒否できる。
 
 ## 21. 未決事項
 
-- Firmware Serverの実装・配置先
-- manifest URLを固定設定にするか、許可済み範囲でMQTT指定可能にするか
+- ローカルFirmware Serverの実装方式、使用ポート、DNS名および証明書発行方法
+- エンドポイント設定を更新する認証済み管理経路の具体方式
 - バッテリー残量または外部給電の検出方法
 - 初回起動ヘルスチェックの制限時間
 - Arduino frameworkのままBootloader rollbackを構成する方法、またはESP-IDFへの移行要否
@@ -713,8 +782,10 @@ Gitタグ名、ファームウェア内バージョン、manifestの `version` �
 - 専用OTA Controllerへ移行する台数・運用条件
 - Canary観測時間、成功率、失敗率の具体的な判定値
 - グループ情報の設定・変更・監査方法
+- AtomS3UでUnit Wateringを使用する際の確定GPIO割当と電気的適合性
 
 ## 22. 参考資料
 
 - [Espressif ESP32-S3 OTA API / App rollback](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/ota.html)
 - [Espressif ESP32-S3 Security Overview](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/security/security.html)
+- [M5Stack AtomS3U](https://docs.m5stack.com/en/core/AtomS3U)
