@@ -65,8 +65,13 @@ cp firmware-server/.env.example firmware-server/.env
 Start the server:
 
 ```bash
-docker compose --env-file firmware-server/.env \
-  -f firmware-server/compose.yaml up -d --build
+firmware-server/server_ctrl.sh up
+```
+
+Stop the server without deleting the persistent firmware volume:
+
+```bash
+firmware-server/server_ctrl.sh down
 ```
 
 Verify readiness:
