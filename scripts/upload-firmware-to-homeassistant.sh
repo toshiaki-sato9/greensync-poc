@@ -24,6 +24,8 @@ Options:
   -h, --help          Show this help
 
 Connection settings are configured at the top of this script.
+The deployment token is loaded from .secrets/firmware-server-token.txt by
+default, or from GREENSYNC_FIRMWARE_SERVER_TOKEN / _TOKEN_FILE.
 EOF
 }
 
@@ -81,6 +83,7 @@ done
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 repository_dir="$(cd "$script_dir/.." && pwd)"
 publisher="$script_dir/publish-firmware.sh"
+deployment_token_file="${GREENSYNC_FIRMWARE_SERVER_TOKEN_FILE:-$repository_dir/.secrets/firmware-server-token.txt}"
 if [[ "$firmware_file" = /* ]]; then
   firmware_path="$firmware_file"
 else
@@ -96,7 +99,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for command in scp curl python3; do
+for command in scp curl python3 tr; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "Error: required command is unavailable: $command" >&2
     exit 1
@@ -169,15 +172,19 @@ elif [[ "$http_status" != "404" ]]; then
 fi
 
 if [[ "$skip_publish" == false && -z "${GREENSYNC_FIRMWARE_SERVER_TOKEN:-}" ]]; then
-  echo
-  echo "On the Home Assistant server, obtain the token with:"
-  echo "  sudo cat /opt/greensync/firmware-server/secrets/deployment-token.txt"
-  echo "Then paste it below. Input is not echoed or stored by this script."
-  read -r -s -p "Deployment token: " GREENSYNC_FIRMWARE_SERVER_TOKEN
-  echo
+  if [[ ! -r "$deployment_token_file" ]]; then
+    echo "Error: deployment token file is not readable: $deployment_token_file" >&2
+    echo >&2
+    echo "Create it once on the development PC:" >&2
+    echo "  mkdir -p '$repository_dir/.secrets'" >&2
+    echo "  ssh $HOME_ASSISTANT_SSH sudo cat /opt/greensync/firmware-server/secrets/deployment-token.txt > '$deployment_token_file'" >&2
+    echo "  chmod 600 '$deployment_token_file'" >&2
+    exit 1
+  fi
+  GREENSYNC_FIRMWARE_SERVER_TOKEN="$(tr -d '\r\n' < "$deployment_token_file")"
 fi
 
-if [[ "$skip_publish" == false && -z "$GREENSYNC_FIRMWARE_SERVER_TOKEN" ]]; then
+if [[ "$skip_publish" == false && -z "${GREENSYNC_FIRMWARE_SERVER_TOKEN:-}" ]]; then
   echo "Error: deployment token must not be empty" >&2
   exit 1
 fi

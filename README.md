@@ -16,6 +16,10 @@ Open the AtomS3 serial monitor from the repository root with `./monitor.sh`.
 It defaults to `/dev/cu.usbmodem101` at 115200 baud. A different port and baud
 rate can be passed as `./monitor.sh PORT BAUD`.
 
+Before the first firmware upload, store the deployment token in the ignored
+`.secrets/firmware-server-token.txt` file. Subsequent `./upload.sh VERSION`
+commands load it automatically instead of prompting for the token.
+
 The companion server is in `firmware-server/`. It can run beside Home
 Assistant with Docker Compose and can later be moved to cloud infrastructure
 without changing the release API.

@@ -1,4 +1,5 @@
 .pio/
+.secrets/
 .DS_Store
 firmware-server/.env
 firmware-server/certs/
