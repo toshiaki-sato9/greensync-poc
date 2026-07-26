@@ -115,6 +115,7 @@ fi
 echo "Sending OTA install command..."
 mosquitto_pub \
   "${mqtt_arguments[@]}" \
+  -q 1 \
   -t "$command_topic" \
   -m "$command_payload"
 

@@ -193,7 +193,7 @@ bool MQTTService::connect() {
   Serial.print(thresholdSetTopic);
   Serial.print(", result=");
   Serial.println(thresholdSubscribed ? "OK" : "FAILED");
-  const bool otaSubscribed = client.subscribe(otaCommandTopic);
+  const bool otaSubscribed = client.subscribe(otaCommandTopic, 1);
   Serial.print("MQTT subscribe topic=");
   Serial.print(otaCommandTopic);
   Serial.print(", result=");
