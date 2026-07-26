@@ -71,15 +71,13 @@ curl --cacert firmware-server/certs/server.crt \
 
 ### Publish and deploy to one device
 
-From the development PC, specify the release version and the target device's 12-digit ID. This publishes the configured application binary and sends an MQTT `install` command only to that device.
+From the development PC, specify an already-published release version and the target device's 12-digit ID. This verifies the immutable release manifest and sends an MQTT `install` command only to that device. It does not upload or compare a local binary; use `upload.sh` first when publishing a new release.
 
 ```bash
 firmware-server/deploy.sh 0.3.1 4c1f980af6e8
 ```
 
-The device ID may also be passed as `atom-s3-4c1f980af6e8` or `greensync-atom-s3-4c1f980af6e8`. Set `GREENSYNC_FIRMWARE_FILE` when deploying a binary outside the default PlatformIO build path. MQTT credentials, when required, are supplied through `GREENSYNC_MQTT_USERNAME` and `GREENSYNC_MQTT_PASSWORD`.
-
-Deployment is idempotent for an immutable release: when the same version already exists with an identical size and SHA-256, upload is skipped and the per-device MQTT command is sent. If that version exists with different content, deployment stops and requires a new version number.
+The device ID may also be passed as `atom-s3-4c1f980af6e8` or `greensync-atom-s3-4c1f980af6e8`. MQTT credentials, when required, are supplied through `GREENSYNC_MQTT_USERNAME` and `GREENSYNC_MQTT_PASSWORD`.
 
 ### Publish only
 

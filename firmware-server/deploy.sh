@@ -2,14 +2,13 @@
 
 set -euo pipefail
 
-# Deployment defaults. Environment variables with the same purpose can override
-# the firmware path and MQTT connection without editing this file.
-DEFAULT_FIRMWARE_FILE="firmware/atom-s3-lite/.pio/build/m5stack-atoms3/firmware.bin"
+# Deployment defaults.
 HARDWARE_ID="m5stack-atoms3-lite"
-CHANNEL="stable"
 MQTT_HOST="${GREENSYNC_MQTT_HOST:-192.168.1.35}"
 MQTT_PORT="${GREENSYNC_MQTT_PORT:-1883}"
 FIRMWARE_SERVER_URL="${GREENSYNC_FIRMWARE_SERVER_URL:-https://192.168.1.35:8443/greensync/ota}"
+HOME_ASSISTANT_SSH="${GREENSYNC_HOME_ASSISTANT_SSH:-sato@192.168.1.35}"
+REMOTE_CA_CERT="${GREENSYNC_REMOTE_CA_CERT:-/opt/greensync/firmware-server/certs/server.crt}"
 
 usage() {
   cat <<'EOF'
@@ -24,8 +23,9 @@ Arguments:
              greensync-atom-s3-4c1f980af6e8
 
 Environment:
-  GREENSYNC_FIRMWARE_FILE          Application binary path
-  GREENSYNC_FIRMWARE_SERVER_TOKEN  Optional; prompted when unset
+  GREENSYNC_FIRMWARE_SERVER_URL    Firmware Server base URL
+  GREENSYNC_HOME_ASSISTANT_SSH     SSH destination used to fetch the CA
+  GREENSYNC_REMOTE_CA_CERT         CA certificate path on the server
   GREENSYNC_MQTT_HOST              MQTT broker host (default: 192.168.1.35)
   GREENSYNC_MQTT_PORT              MQTT broker port (default: 1883)
   GREENSYNC_MQTT_USERNAME          Optional MQTT username
@@ -54,44 +54,56 @@ if [[ ! "$device_id" =~ ^[0-9a-fA-F]{12}$ ]]; then
 fi
 device_id="$(printf '%s' "$device_id" | tr '[:upper:]' '[:lower:]')"
 
-script_dir="$(cd "$(dirname "$0")" && pwd)"
-repository_dir="$(cd "$script_dir/.." && pwd)"
-uploader="$repository_dir/scripts/upload-firmware-to-homeassistant.sh"
-firmware_file="${GREENSYNC_FIRMWARE_FILE:-$DEFAULT_FIRMWARE_FILE}"
-if [[ "$firmware_file" != /* ]]; then
-  firmware_file="$repository_dir/$firmware_file"
-fi
-
-if [[ ! -f "$firmware_file" ]]; then
-  echo "Error: firmware binary does not exist: $firmware_file" >&2
-  echo "Build it first with: (cd firmware/atom-s3-lite && pio run)" >&2
-  exit 1
-fi
-if [[ ! -x "$uploader" ]]; then
-  echo "Error: upload script is unavailable: $uploader" >&2
-  exit 1
-fi
-if ! command -v mosquitto_pub >/dev/null 2>&1; then
-  echo "Error: mosquitto_pub is required (macOS: brew install mosquitto)" >&2
-  exit 1
-fi
+for command in curl mosquitto_pub python3 scp; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "Error: required command is unavailable: $command" >&2
+    exit 1
+  fi
+done
 
 echo "Deploying firmware"
 echo "  version:  $version"
 echo "  device:   atom-s3-$device_id"
-echo "  firmware: $firmware_file"
-
-"$uploader" \
-  --version "$version" \
-  --firmware "$firmware_file" \
-  --hardware "$HARDWARE_ID" \
-  --channel "$CHANNEL"
 
 request_id="deploy-${version}-${device_id}-$(date -u +%Y%m%dT%H%M%SZ)"
 command_topic="greensync/atom-s3-${device_id}/ota/command"
 manifest_url="${FIRMWARE_SERVER_URL%/}/api/v1/releases/$HARDWARE_ID/$version/manifest.json"
 command_payload="{\"action\":\"install\",\"requestId\":\"$request_id\",\"targetVersion\":\"$version\",\"manifestUrl\":\"$manifest_url\"}"
 mqtt_arguments=(-h "$MQTT_HOST" -p "$MQTT_PORT")
+
+temporary_directory="$(mktemp -d)"
+ca_certificate="$temporary_directory/server.crt"
+manifest_file="$temporary_directory/manifest.json"
+cleanup() {
+  rm -rf "$temporary_directory"
+}
+trap cleanup EXIT
+
+echo "Fetching Firmware Server CA certificate..."
+scp "$HOME_ASSISTANT_SSH:$REMOTE_CA_CERT" "$ca_certificate"
+
+echo "Checking published release..."
+curl \
+  --fail-with-body \
+  --silent \
+  --show-error \
+  --cacert "$ca_certificate" \
+  --output "$manifest_file" \
+  "$manifest_url"
+
+python3 - "$manifest_file" "$HARDWARE_ID" "$version" <<'PY'
+import json
+import pathlib
+import sys
+
+manifest_path, hardware, version = sys.argv[1:]
+manifest = json.loads(pathlib.Path(manifest_path).read_text())
+if manifest.get("hardware") != hardware or manifest.get("version") != version:
+    print("Error: published manifest does not match the requested release", file=sys.stderr)
+    raise SystemExit(1)
+print(f"  published size:   {manifest.get('size')}")
+print(f"  published sha256: {manifest.get('sha256')}")
+PY
 
 if [[ -n "${GREENSYNC_MQTT_USERNAME:-}" ]]; then
   mqtt_arguments+=(-u "$GREENSYNC_MQTT_USERNAME")
