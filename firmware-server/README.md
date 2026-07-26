@@ -49,6 +49,16 @@ firmware-server/certs/server.key
 
 The server certificate contains the hostname and IP used by devices in its Subject Alternative Name. Firmware Server uses `server.crt` and `server.key`; devices trust only `ca.crt`. Keep `ca.key` private and do not deploy it to devices.
 
+To renew only the server certificate while preserving the device-trusted root CA:
+
+```bash
+firmware-server/renew-server-certificate.sh 192.168.1.35 homeassistant.local
+firmware-server/server_ctrl.sh down
+firmware-server/server_ctrl.sh up
+```
+
+The IP is included as both an IP SAN and a compatibility dNSName SAN because the ESP32-S3 framework version used by this project does not match IP Address SAN entries during hostname verification.
+
 Create a deployment token without committing it:
 
 ```bash

@@ -13,45 +13,29 @@ cleanup() {
 }
 trap cleanup EXIT
 
-command -v openssl >/dev/null 2>&1 || {
-  echo "Error: openssl is required" >&2
-  exit 1
-}
-
-mkdir -p "$cert_dir"
 for file in ca.crt ca.key server.crt server.key; do
-  if [[ -e "$cert_dir/$file" ]]; then
-    echo "Error: $cert_dir/$file already exists; back up and remove existing certificates first" >&2
+  if [[ ! -f "$cert_dir/$file" ]]; then
+    echo "Error: required certificate file does not exist: $cert_dir/$file" >&2
     exit 1
   fi
 done
 
-openssl genpkey \
-  -algorithm RSA \
-  -pkeyopt rsa_keygen_bits:3072 \
-  -out "$cert_dir/ca.key"
-
-openssl req \
-  -x509 \
-  -new \
-  -sha256 \
-  -days 3650 \
-  -key "$cert_dir/ca.key" \
-  -out "$cert_dir/ca.crt" \
-  -subj "/CN=GreenSync Local Firmware CA" \
-  -addext "basicConstraints=critical,CA:TRUE,pathlen:0" \
-  -addext "keyUsage=critical,keyCertSign,cRLSign" \
-  -addext "subjectKeyIdentifier=hash"
+certificate_uid="$(stat -c '%u' "$cert_dir/server.key")"
+certificate_gid="$(stat -c '%g' "$cert_dir/server.key")"
+backup_dir="$cert_dir/previous/$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$backup_dir"
+cp "$cert_dir/server.crt" "$backup_dir/server.crt"
+cp "$cert_dir/server.key" "$backup_dir/server.key"
 
 openssl genpkey \
   -algorithm RSA \
   -pkeyopt rsa_keygen_bits:2048 \
-  -out "$cert_dir/server.key"
+  -out "$temporary_directory/server.key"
 
 openssl req \
   -new \
   -sha256 \
-  -key "$cert_dir/server.key" \
+  -key "$temporary_directory/server.key" \
   -out "$temporary_directory/server.csr" \
   -subj "/CN=$server_ip"
 
@@ -73,14 +57,15 @@ openssl x509 \
   -CA "$cert_dir/ca.crt" \
   -CAkey "$cert_dir/ca.key" \
   -CAcreateserial \
-  -out "$cert_dir/server.crt" \
+  -out "$temporary_directory/server.crt" \
   -extfile "$extensions"
 
-chmod 400 "$cert_dir/ca.key" "$cert_dir/server.key"
-chmod 444 "$cert_dir/ca.crt" "$cert_dir/server.crt"
+openssl verify -CAfile "$cert_dir/ca.crt" "$temporary_directory/server.crt"
+install -o "$certificate_uid" -g "$certificate_gid" -m 0400 \
+  "$temporary_directory/server.key" "$cert_dir/server.key"
+install -o "$certificate_uid" -g "$certificate_gid" -m 0444 \
+  "$temporary_directory/server.crt" "$cert_dir/server.crt"
 
-openssl verify -CAfile "$cert_dir/ca.crt" "$cert_dir/server.crt"
 openssl x509 -in "$cert_dir/server.crt" -noout -subject -issuer -ext subjectAltName
-
-echo "Certificates generated in $cert_dir"
-echo "Keep ca.key private and back it up securely."
+echo "Server certificate renewed. Previous files: $backup_dir"
+echo "Restart Firmware Server with: $script_dir/server_ctrl.sh down && $script_dir/server_ctrl.sh up"
