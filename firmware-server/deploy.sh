@@ -8,7 +8,7 @@ MQTT_HOST="${GREENSYNC_MQTT_HOST:-192.168.1.35}"
 MQTT_PORT="${GREENSYNC_MQTT_PORT:-1883}"
 FIRMWARE_SERVER_URL="${GREENSYNC_FIRMWARE_SERVER_URL:-https://192.168.1.35:8443/greensync/ota}"
 HOME_ASSISTANT_SSH="${GREENSYNC_HOME_ASSISTANT_SSH:-sato@192.168.1.35}"
-REMOTE_CA_CERT="${GREENSYNC_REMOTE_CA_CERT:-/opt/greensync/firmware-server/certs/server.crt}"
+REMOTE_CA_CERT="${GREENSYNC_REMOTE_CA_CERT:-/opt/greensync/firmware-server/certs/ca.crt}"
 
 usage() {
   cat <<'EOF'

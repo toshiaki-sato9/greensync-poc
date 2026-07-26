@@ -5,7 +5,7 @@ set -euo pipefail
 # Deployment settings. Update these values for the target Home Assistant host.
 HOME_ASSISTANT_SSH="sato@192.168.1.35"
 FIRMWARE_SERVER_URL="https://192.168.1.35:8443/greensync/ota"
-REMOTE_CA_CERT="/opt/greensync/firmware-server/certs/server.crt"
+REMOTE_CA_CERT="/opt/greensync/firmware-server/certs/ca.crt"
 DEFAULT_HARDWARE_ID="m5stack-atoms3-lite"
 DEFAULT_CHANNEL="stable"
 

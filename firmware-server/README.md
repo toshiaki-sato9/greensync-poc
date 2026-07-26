@@ -31,14 +31,23 @@ Create the local configuration directories:
 mkdir -p firmware-server/certs firmware-server/secrets
 ```
 
-Place the TLS certificate and key at:
+Generate a dedicated local root CA and a server certificate signed by that CA:
+
+```bash
+cd firmware-server
+./generate-certificates.sh 192.168.1.35 homeassistant.local
+```
+
+This creates:
 
 ```text
+firmware-server/certs/ca.crt
+firmware-server/certs/ca.key
 firmware-server/certs/server.crt
 firmware-server/certs/server.key
 ```
 
-The certificate must contain the hostname or IP used by devices in its Subject Alternative Name. A hostname such as `homeassistant.local` is preferable to a fixed IP.
+The server certificate contains the hostname and IP used by devices in its Subject Alternative Name. Firmware Server uses `server.crt` and `server.key`; devices trust only `ca.crt`. Keep `ca.key` private and do not deploy it to devices.
 
 Create a deployment token without committing it:
 
@@ -63,7 +72,7 @@ docker compose --env-file firmware-server/.env \
 Verify readiness:
 
 ```bash
-curl --cacert firmware-server/certs/server.crt \
+curl --cacert firmware-server/certs/ca.crt \
   https://homeassistant.local:8443/greensync/ota/ready
 ```
 
@@ -104,7 +113,7 @@ Set the release version at the top of `scripts/publish-firmware.sh`, then run:
 ```bash
 export GREENSYNC_FIRMWARE_SERVER_URL='https://homeassistant.local:8443/greensync/ota'
 export GREENSYNC_FIRMWARE_SERVER_TOKEN="$(cat firmware-server/secrets/deployment-token.txt)"
-export GREENSYNC_FIRMWARE_CA_CERT='firmware-server/certs/server.crt'
+export GREENSYNC_FIRMWARE_CA_CERT='firmware-server/certs/ca.crt'
 
 scripts/publish-firmware.sh \
   firmware/atom-s3-lite/.pio/build/m5stack-atoms3 \
