@@ -204,6 +204,51 @@ ATOMS3 LiteとAtomS3UはESP32-S3および8MB Flashを採用し、Arduino、ESP-I
 
 Unit WateringをAtomS3UのGroveへ接続する場合、公式pin map上はG1/G2を利用できるが、センサ入力・ポンプ出力の割当、ADC特性、ボタン入力、ポンプOFFレベルを実機で再検証する。OTA中の安全制御はBoard Profile経由でポンプをOFFにできることを移植受け入れ条件とする。
 
+### 8.5 リリースアップロード
+
+開発PCまたはCIは `scripts/publish-firmware.sh` を使用し、指定ディレクトリ内のアプリケーションバイナリをFirmware Server管理APIへアップロードする。
+
+```bash
+export GREENSYNC_FIRMWARE_SERVER_URL='https://homeassistant.local:8443/greensync/ota'
+export GREENSYNC_FIRMWARE_SERVER_TOKEN='replace-with-deployment-token'
+
+scripts/publish-firmware.sh firmware/atom-s3-lite/.pio/build/m5stack-atoms3 \
+  --hardware m5stack-atoms3-lite \
+  --version 0.3.0 \
+  --channel stable
+```
+
+既定では指定ディレクトリ直下の `firmware*.bin` のみを対象とする。OTA対象外の `bootloader.bin` と `partitions.bin` はアップロードしない。トークンはコマンドライン引数に含めず環境変数から渡す。ローカルCAを使用する場合は `GREENSYNC_FIRMWARE_CA_CERT` にCA証明書ファイルを指定する。
+
+実送信前には `--dry-run` で対象ファイル、hardware ID、version、サイズ、SHA-256を確認できる。
+
+```bash
+scripts/publish-firmware.sh path/to/binaries \
+  --hardware m5stack-atoms3-lite \
+  --version 0.3.0 \
+  --dry-run
+```
+
+管理API契約:
+
+```http
+POST <base-url>/admin/api/v1/releases
+Authorization: Bearer <deployment-token>
+Content-Type: multipart/form-data
+```
+
+| Form field | 内容 |
+|---|---|
+| `hardware` | Board Profileのhardware ID |
+| `version` | リリースバージョン |
+| `channel` | `stable`、`canary`などの配信channel |
+| `artifactName` | 元のバイナリファイル名 |
+| `size` | バイナリサイズ（bytes） |
+| `sha256` | クライアント側で計算したSHA-256 |
+| `firmware` | `application/octet-stream` のバイナリ本体 |
+
+サーバーはサイズとSHA-256を再計算し、hardware ID、versionおよびESP32アプリケーションイメージを検証する。同一hardware・version・artifact名の上書きを拒否し、一時領域への保存と検証が完了してから原子的に公開する。
+
 ## 9. MQTTインターフェース
 
 `<device_id>` は個体固有IDを表す。
