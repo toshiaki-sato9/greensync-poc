@@ -10,8 +10,7 @@
 #define OTA_MANIFEST_URL OTA_BASE_URL "/api/v1/channels/m5stack-atoms3-lite/stable/manifest.json"
 
 // PEM-encoded CA certificate that signs the Firmware Server certificate.
-#define OTA_CA_CERT R"PEM(
------BEGIN CERTIFICATE-----
-replace-with-local-or-public-ca-certificate
------END CERTIFICATE-----
-)PEM"
+#define OTA_CA_CERT \
+  "-----BEGIN CERTIFICATE-----\n" \
+  "replace-with-local-or-public-ca-certificate\n" \
+  "-----END CERTIFICATE-----\n"
