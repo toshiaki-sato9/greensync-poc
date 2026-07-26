@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # Release settings. Update this value before publishing a new version.
-FIRMWARE_VERSION="0.3.0"
+FIRMWARE_VERSION="0.3.1"
 
 usage() {
   cat <<'EOF'
