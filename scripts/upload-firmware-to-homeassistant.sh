@@ -177,7 +177,7 @@ if [[ "$skip_publish" == false && -z "${GREENSYNC_FIRMWARE_SERVER_TOKEN:-}" ]]; 
     echo >&2
     echo "Create it once on the development PC:" >&2
     echo "  mkdir -p '$repository_dir/.secrets'" >&2
-    echo "  ssh $HOME_ASSISTANT_SSH sudo cat /opt/greensync/firmware-server/secrets/deployment-token.txt > '$deployment_token_file'" >&2
+    echo "  ssh -tt $HOME_ASSISTANT_SSH sudo cat /opt/greensync/firmware-server/secrets/deployment-token.txt > '$deployment_token_file'" >&2
     echo "  chmod 600 '$deployment_token_file'" >&2
     exit 1
   fi

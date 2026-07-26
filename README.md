@@ -19,6 +19,7 @@ rate can be passed as `./monitor.sh PORT BAUD`.
 Before the first firmware upload, store the deployment token in the ignored
 `.secrets/firmware-server-token.txt` file. Subsequent `./upload.sh VERSION`
 commands load it automatically instead of prompting for the token.
+Use `ssh -tt` when retrieving it so remote `sudo` can request its password.
 
 The companion server is in `firmware-server/`. It can run beside Home
 Assistant with Docker Compose and can later be moved to cloud infrastructure
