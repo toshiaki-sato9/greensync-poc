@@ -69,6 +69,16 @@ curl --cacert firmware-server/certs/server.crt \
 
 ## Publish a firmware build
 
+For the standard Home Assistant deployment, run the wrapper from the development PC. Connection settings are defined at the top of the script. It fetches the server CA certificate, prompts for the deployment token without echoing it, uploads the application image, and retrieves the published manifest.
+
+```bash
+scripts/upload-firmware-to-homeassistant.sh \
+  --version 0.3.1 \
+  --firmware firmware/atom-s3-lite/.pio/build/m5stack-atoms3/firmware.bin
+```
+
+The lower-level procedure is shown below for other deployment environments.
+
 Set the release version at the top of `scripts/publish-firmware.sh`, then run:
 
 ```bash
