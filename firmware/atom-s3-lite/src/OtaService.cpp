@@ -5,6 +5,7 @@
 #include "Secrets.h"
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
+#include <Preferences.h>
 #include <Update.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -31,6 +32,9 @@ constexpr size_t DownloadBufferBytes = 4096;
 uint8_t downloadBuffer[DownloadBufferBytes];
 constexpr time_t MinimumValidEpoch = 1704067200;  // 2024-01-01T00:00:00Z
 constexpr unsigned long TimeSyncTimeoutMs = 15000;
+constexpr char OtaPreferencesNamespace[] = "greensync-ota";
+constexpr char PendingRequestKey[] = "request";
+constexpr char PendingVersionKey[] = "target";
 
 bool ensureSystemTime() {
   if (time(nullptr) >= MinimumValidEpoch) return true;
@@ -88,6 +92,7 @@ void sha256ToHex(const unsigned char hash[32], char output[65]) {
 
 void OtaService::begin(MQTTService* mqttService) {
   mqtt_ = mqttService;
+  loadPendingResult();
   const esp_partition_t* running = esp_ota_get_running_partition();
   esp_ota_img_states_t state;
   if (running != nullptr &&
@@ -97,10 +102,15 @@ void OtaService::begin(MQTTService* mqttService) {
     verificationStartedAtMs_ = millis();
     Serial.println("OTA pending verification; watering remains disabled");
   }
+  if (pendingResult_) {
+    verificationStartedAtMs_ = millis();
+    Serial.print("OTA result pending for request ");
+    Serial.println(pendingRequestId_);
+  }
 }
 
 bool OtaService::queueCommand(const byte* payload, unsigned int length) {
-  if (length == 0 || length > MaxCommandBytes || busy_ || pendingVerification_ ||
+  if (length == 0 || length > MaxCommandBytes || busy_ || isPendingVerification() ||
       !queuedCommand_.isEmpty()) {
     return false;
   }
@@ -114,7 +124,7 @@ bool OtaService::queueCommand(const byte* payload, unsigned int length) {
 
 void OtaService::loop(bool controllerIdle, bool emergencyStopActive) {
   checkPendingVerification();
-  if (pendingVerification_ || busy_ || queuedCommand_.isEmpty()) {
+  if (isPendingVerification() || busy_ || queuedCommand_.isEmpty()) {
     return;
   }
   processCommand(controllerIdle, emergencyStopActive);
@@ -330,7 +340,13 @@ bool OtaService::downloadFirmware(const char* url, size_t expectedSize,
     fail(requestId, targetVersion, "HASH_MISMATCH", "Firmware SHA-256 does not match");
     return false;
   }
+  if (!savePendingResult(requestId, targetVersion)) {
+    Update.abort();
+    fail(requestId, targetVersion, "FLASH_WRITE_FAILED", "Could not persist OTA result context");
+    return false;
+  }
   if (!Update.end(true)) {
+    clearPendingResult();
     fail(requestId, targetVersion, "FLASH_WRITE_FAILED", Update.errorString());
     return false;
   }
@@ -341,17 +357,30 @@ bool OtaService::downloadFirmware(const char* url, size_t expectedSize,
 }
 
 void OtaService::checkPendingVerification() {
-  if (!pendingVerification_) return;
+  if (!pendingVerification_ && !pendingResult_) return;
   if (WiFi.status() == WL_CONNECTED && mqtt_ != nullptr && mqtt_->isConnected()) {
-    if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
+    if (pendingResult_ && pendingTargetVersion_ != Config::FirmwareVersion) {
+      publish("ROLLED_BACK", pendingRequestId_.c_str(), pendingTargetVersion_.c_str(), 0,
+              "BOOT_VALIDATION_FAILED", "Device returned to the previous firmware");
+      clearPendingResult();
       pendingVerification_ = false;
-      publish("SUCCEEDED", "", Config::FirmwareVersion, 100, nullptr, "New firmware verified");
+      return;
+    }
+    if (!pendingVerification_ || esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
+      const char* targetVersion = pendingResult_
+                                      ? pendingTargetVersion_.c_str()
+                                      : Config::FirmwareVersion;
+      publish("SUCCEEDED", pendingRequestId_.c_str(), targetVersion,
+              100, nullptr, "New firmware verified");
+      clearPendingResult();
+      pendingVerification_ = false;
     }
     return;
   }
-  if (millis() - verificationStartedAtMs_ >=
+  if (pendingVerification_ && millis() - verificationStartedAtMs_ >=
       static_cast<unsigned long>(Config::OtaVerificationTimeoutMs)) {
-    publish("ROLLED_BACK", "", Config::FirmwareVersion, 0,
+    publish("ROLLED_BACK", pendingRequestId_.c_str(),
+            pendingResult_ ? pendingTargetVersion_.c_str() : Config::FirmwareVersion, 0,
             "BOOT_VALIDATION_FAILED", "Connectivity health check failed");
     delay(200);
     esp_ota_mark_app_invalid_rollback_and_reboot();
@@ -373,5 +402,36 @@ void OtaService::fail(const char* requestId, const char* targetVersion,
 }
 
 bool OtaService::isBusy() const { return busy_; }
-bool OtaService::isPendingVerification() const { return pendingVerification_; }
+bool OtaService::isPendingVerification() const {
+  return pendingVerification_ || pendingResult_;
+}
 bool OtaService::hasPendingCommand() const { return !queuedCommand_.isEmpty(); }
+
+bool OtaService::savePendingResult(const char* requestId, const char* targetVersion) {
+  Preferences preferences;
+  if (!preferences.begin(OtaPreferencesNamespace, false)) return false;
+  const size_t requestBytes = preferences.putString(PendingRequestKey, requestId);
+  const size_t versionBytes = preferences.putString(PendingVersionKey, targetVersion);
+  preferences.end();
+  return requestBytes > 0 && versionBytes > 0;
+}
+
+void OtaService::loadPendingResult() {
+  Preferences preferences;
+  if (!preferences.begin(OtaPreferencesNamespace, true)) return;
+  pendingRequestId_ = preferences.getString(PendingRequestKey, "");
+  pendingTargetVersion_ = preferences.getString(PendingVersionKey, "");
+  preferences.end();
+  pendingResult_ = !pendingRequestId_.isEmpty() && !pendingTargetVersion_.isEmpty();
+}
+
+void OtaService::clearPendingResult() {
+  Preferences preferences;
+  if (preferences.begin(OtaPreferencesNamespace, false)) {
+    preferences.clear();
+    preferences.end();
+  }
+  pendingRequestId_ = "";
+  pendingTargetVersion_ = "";
+  pendingResult_ = false;
+}

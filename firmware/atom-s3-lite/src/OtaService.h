@@ -26,11 +26,17 @@ private:
   void fail(const char* requestId, const char* targetVersion,
             const char* errorCode, const char* message);
   void checkPendingVerification();
+  bool savePendingResult(const char* requestId, const char* targetVersion);
+  void loadPendingResult();
+  void clearPendingResult();
 
   MQTTService* mqtt_ = nullptr;
   String queuedCommand_;
   String lastRequestId_;
   bool busy_ = false;
   bool pendingVerification_ = false;
+  bool pendingResult_ = false;
+  String pendingRequestId_;
+  String pendingTargetVersion_;
   unsigned long verificationStartedAtMs_ = 0;
 };
