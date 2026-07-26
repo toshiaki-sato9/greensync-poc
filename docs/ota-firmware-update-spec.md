@@ -255,6 +255,8 @@ Content-Type: multipart/form-data
 
 サーバーはサイズとSHA-256を再計算し、hardware ID、versionおよびESP32アプリケーションイメージを検証する。同一hardware・version・artifact名の上書きを拒否し、一時領域への保存と検証が完了してから原子的に公開する。
 
+SHA-256はアップロード破損やmanifestとbinの不一致を検出する。攻撃者がbinとmanifestの両方を置換するケースに対する真正性保証ではないため、製品化時はデバイス内の公開鍵でmanifestまたはイメージ署名を検証する。SHA-384やSHA-512への単純な置換より、デジタル署名の追加を優先する。
+
 ## 9. MQTTインターフェース
 
 `<device_id>` は個体固有IDを表す。
