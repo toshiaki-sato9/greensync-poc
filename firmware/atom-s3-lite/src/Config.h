@@ -6,6 +6,12 @@ constexpr int PumpPin = 2;
 
 constexpr int DryRaw = 2150;
 constexpr int WetRaw = 1770;
+constexpr int MoistureSampleCount = 9;
+constexpr int MoistureSampleDelayMs = 2;
+static_assert(MoistureSampleCount > 0 && MoistureSampleCount % 2 == 1,
+              "MoistureSampleCount must be a positive odd number");
+static_assert(MoistureSampleDelayMs >= 0,
+              "MoistureSampleDelayMs must not be negative");
 
 constexpr int WateringThresholdPercent = 30;
 constexpr int WateringDurationMs = 3000;

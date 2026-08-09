@@ -7,6 +7,10 @@
 #include <ArduinoJson.h>
 #include <PubSubClient.h>
 #include <WiFi.h>
+#include <cctype>
+#include <cerrno>
+#include <climits>
+#include <cstdlib>
 #include <cstring>
 
 namespace {
@@ -84,6 +88,14 @@ bool publishThresholdState() {
 }
 
 void onMessage(char* topic, byte* payload, unsigned int length) {
+  Serial.print("MQTT receive topic=");
+  Serial.print(topic);
+  Serial.print(", payload=");
+  for (unsigned int i = 0; i < length; ++i) {
+    Serial.write(payload[i]);
+  }
+  Serial.println();
+
   if (strcmp(topic, otaCommandTopic) == 0) {
     if (ota == nullptr || !ota->queueCommand(payload, length)) {
       Serial.println("OTA command rejected: updater is busy or payload is invalid");
@@ -92,21 +104,40 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
   }
 
   if (wateringSettings == nullptr) {
+    Serial.println("MQTT receive ignored: settings unavailable");
     return;
   }
 
   if (strcmp(topic, thresholdSetTopic) != 0) {
+    Serial.println("MQTT receive ignored: unexpected topic");
     return;
   }
 
-  char buffer[16];
-  const unsigned int copyLength = length < sizeof(buffer) - 1 ? length : sizeof(buffer) - 1;
-  memcpy(buffer, payload, copyLength);
-  buffer[copyLength] = '\0';
+  char buffer[24];
+  if (length == 0 || length >= sizeof(buffer)) {
+    Serial.println("Watering threshold rejected: invalid payload length");
+    publishThresholdState();
+    return;
+  }
+  memcpy(buffer, payload, length);
+  buffer[length] = '\0';
 
-  const int requestedThreshold = atoi(buffer);
+  char* end = nullptr;
+  errno = 0;
+  const long parsedThreshold = strtol(buffer, &end, 10);
+  while (end != nullptr &&
+         isspace(static_cast<unsigned char>(*end)) != 0) {
+    ++end;
+  }
+  if (errno == ERANGE || parsedThreshold < INT_MIN || parsedThreshold > INT_MAX ||
+      end == buffer || end == nullptr || *end != '\0') {
+    Serial.println("Watering threshold rejected: payload must be an integer");
+    publishThresholdState();
+    return;
+  }
+
   const int normalizedThreshold =
-      WateringSettings::clampThresholdPercent(requestedThreshold);
+      WateringSettings::clampThresholdPercent(static_cast<int>(parsedThreshold));
   const bool changed =
       wateringSettings->setWateringThresholdPercent(normalizedThreshold);
 
@@ -277,6 +308,7 @@ const bool rssiOk =
       thresholdConfig, sizeof(thresholdConfig),
       "{\"name\":\"Watering Threshold\","
       "\"unique_id\":\"%s_watering_threshold\",\"command_topic\":\"%s\","
+      "\"command_template\":\"{{ value | int }}\","
       "\"state_topic\":\"%s\","
       "\"value_template\":\"{{ value_json.wateringThreshold }}\","
       "\"unit_of_measurement\":\"%s\",\"min\":0,\"max\":100,\"step\":1,"
