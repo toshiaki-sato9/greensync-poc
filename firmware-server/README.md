@@ -170,7 +170,10 @@ firmware-server/deploy_lists.sh 0.3.6
 
 Blank lines, comments, and duplicate IDs are ignored. The script validates the
 entire list before sending commands, invokes `deploy.sh` for every target, and
-reports failed targets at the end.
+reports failed targets at the end. Before publishing a command, `deploy.sh`
+waits for a live device-state message, checks the retained OTA version, skips a
+device already running the requested version, and rejects devices that need an
+initial USB installation of OTA-capable firmware.
 
 ## Development
 

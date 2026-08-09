@@ -30,6 +30,7 @@ Environment:
   GREENSYNC_MQTT_PORT              MQTT broker port (default: 1883)
   GREENSYNC_MQTT_USERNAME          Optional MQTT username
   GREENSYNC_MQTT_PASSWORD          Optional MQTT password
+  GREENSYNC_DEVICE_WAIT_SECONDS    Live-state wait time (default: 15)
 EOF
 }
 
@@ -54,7 +55,7 @@ if [[ ! "$device_id" =~ ^[0-9a-fA-F]{12}$ ]]; then
 fi
 device_id="$(printf '%s' "$device_id" | tr '[:upper:]' '[:lower:]')"
 
-for command in curl mosquitto_pub python3 scp; do
+for command in curl mosquitto_pub mosquitto_sub python3 scp; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "Error: required command is unavailable: $command" >&2
     exit 1
@@ -67,9 +68,50 @@ echo "  device:   atom-s3-$device_id"
 
 request_id="deploy-${version}-${device_id}-$(date -u +%Y%m%dT%H%M%SZ)"
 command_topic="greensync/atom-s3-${device_id}/ota/command"
+state_topic="greensync/atom-s3-${device_id}/state"
+version_topic="greensync/atom-s3-${device_id}/ota/version"
 manifest_url="${FIRMWARE_SERVER_URL%/}/api/v1/releases/$HARDWARE_ID/$version/manifest.json"
 command_payload="{\"action\":\"install\",\"requestId\":\"$request_id\",\"targetVersion\":\"$version\",\"manifestUrl\":\"$manifest_url\"}"
 mqtt_arguments=(-h "$MQTT_HOST" -p "$MQTT_PORT")
+
+if [[ -n "${GREENSYNC_MQTT_USERNAME:-}" ]]; then
+  mqtt_arguments+=(-u "$GREENSYNC_MQTT_USERNAME")
+fi
+if [[ -n "${GREENSYNC_MQTT_PASSWORD:-}" ]]; then
+  mqtt_arguments+=(-P "$GREENSYNC_MQTT_PASSWORD")
+fi
+
+echo "Checking device availability..."
+device_wait_seconds="${GREENSYNC_DEVICE_WAIT_SECONDS:-15}"
+if ! mosquitto_sub \
+  "${mqtt_arguments[@]}" \
+  -R \
+  -C 1 \
+  -W "$device_wait_seconds" \
+  -t "$state_topic" \
+  >/dev/null 2>&1; then
+  echo "Error: device did not publish a live state within ${device_wait_seconds}s" >&2
+  echo "  device: atom-s3-$device_id" >&2
+  exit 1
+fi
+
+current_version="$(mosquitto_sub \
+  "${mqtt_arguments[@]}" \
+  -C 1 \
+  -W 3 \
+  -t "$version_topic" \
+  2>/dev/null || true)"
+if [[ -z "$current_version" ]]; then
+  echo "Error: device does not advertise an OTA firmware version" >&2
+  echo "  device: atom-s3-$device_id" >&2
+  echo "Install an OTA-capable firmware over USB first." >&2
+  exit 1
+fi
+echo "  current version: $current_version"
+if [[ "$current_version" == "$version" ]]; then
+  echo "Device already runs firmware $version; skipping OTA command."
+  exit 0
+fi
 
 temporary_directory="$(mktemp -d)"
 ca_certificate="$temporary_directory/server.crt"
@@ -104,13 +146,6 @@ if manifest.get("hardware") != hardware or manifest.get("version") != version:
 print(f"  published size:   {manifest.get('size')}")
 print(f"  published sha256: {manifest.get('sha256')}")
 PY
-
-if [[ -n "${GREENSYNC_MQTT_USERNAME:-}" ]]; then
-  mqtt_arguments+=(-u "$GREENSYNC_MQTT_USERNAME")
-fi
-if [[ -n "${GREENSYNC_MQTT_PASSWORD:-}" ]]; then
-  mqtt_arguments+=(-P "$GREENSYNC_MQTT_PASSWORD")
-fi
 
 echo "Sending OTA install command..."
 mosquitto_pub \
