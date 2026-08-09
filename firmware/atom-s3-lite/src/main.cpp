@@ -29,6 +29,8 @@ unsigned long wateringStartedAtMs = 0;
 int lastRaw = 0;
 int lastPercent = 0;
 bool hasSensorSample = false;
+bool lastSampleBelowCalibrationRange = false;
+bool lastSampleAboveCalibrationRange = false;
 
 const char* stateName(ControllerState state) {
   switch (state) {
@@ -43,8 +45,11 @@ const char* stateName(ControllerState state) {
 }
 
 void readMoistureSample() {
-  lastRaw = moistureSensor.readRaw();
-  lastPercent = moistureSensor.readPercent();
+  const MoistureReading reading = moistureSensor.read();
+  lastRaw = reading.raw;
+  lastPercent = reading.percent;
+  lastSampleBelowCalibrationRange = reading.belowCalibrationRange;
+  lastSampleAboveCalibrationRange = reading.aboveCalibrationRange;
   hasSensorSample = true;
 }
 
@@ -87,6 +92,7 @@ void setup() {
 
   pump.begin();
   pump.off();
+  moistureSensor.begin();
 
   Serial.println();
   Serial.print("===== GreenSync Firmware v");
@@ -139,7 +145,15 @@ void loop() {
     Serial.print("%, threshold=");
     Serial.print(settings.wateringThresholdPercent());
     Serial.print("%, state=");
-    Serial.println(stateName(controllerState));
+    Serial.print(stateName(controllerState));
+    if (lastSampleBelowCalibrationRange) {
+      Serial.print(", calibration=BELOW_WET_RAW");
+    } else if (lastSampleAboveCalibrationRange) {
+      Serial.print(", calibration=ABOVE_DRY_RAW");
+    } else {
+      Serial.print(", calibration=IN_RANGE");
+    }
+    Serial.println();
 
     if (!wateringInhibited && controllerState == ControllerState::Idle &&
         lastPercent < settings.wateringThresholdPercent()) {
