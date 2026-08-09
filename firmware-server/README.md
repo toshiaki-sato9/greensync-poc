@@ -158,6 +158,23 @@ https://homeassistant.local:8443/greensync/ota/api/v1/channels/m5stack-atoms3-li
 
 For cloud migration, deploy the same image with a cloud `FIRMWARE_SERVER_PUBLIC_BASE_URL`. The current implementation uses filesystem storage; an object-storage implementation can be introduced behind the storage boundary without changing device URLs or the upload contract.
 
+## Deploy to multiple Atom devices
+
+Create the local target list from the example and put one Atom device ID on
+each line. `targets.list` is ignored by Git.
+
+```bash
+cp firmware-server/targets.list.example firmware-server/targets.list
+firmware-server/deploy_lists.sh 0.3.6
+```
+
+Blank lines, comments, and duplicate IDs are ignored. The script validates the
+entire list before sending commands, invokes `deploy.sh` for every target, and
+reports failed targets at the end. Before publishing a command, `deploy.sh`
+waits for a live device-state message, checks the retained OTA version, skips a
+device already running the requested version, and rejects devices that need an
+initial USB installation of OTA-capable firmware.
+
 ## Development
 
 Run the tests in a Go container:
