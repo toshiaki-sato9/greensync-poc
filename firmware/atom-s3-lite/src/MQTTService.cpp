@@ -2,6 +2,7 @@
 #include "CalibrationService.h"
 #include "Config.h"
 #include "OtaService.h"
+#include "PumpEvaluationService.h"
 #include "Secrets.h"
 #include "WateringSettings.h"
 #include <Arduino.h>
@@ -20,6 +21,7 @@ PubSubClient client(wifiClient);
 WateringSettings* wateringSettings = nullptr;
 OtaService* ota = nullptr;
 CalibrationService* calibration = nullptr;
+PumpEvaluationService* pumpEvaluation = nullptr;
 
 constexpr uint16_t MqttBufferSize = 1024;
 char deviceId[40];
@@ -33,6 +35,8 @@ char otaStateTopic[96];
 char otaVersionTopic[96];
 char calibrationCommandTopic[96];
 char calibrationStateTopic[96];
+char pumpEvaluationCommandTopic[96];
+char pumpEvaluationStateTopic[96];
 char discoveryTopic[128];
 char discoveryPayload[768];
 unsigned long lastConnectAttemptAtMs = 0;
@@ -65,6 +69,10 @@ void initializeDeviceIdentity() {
            "greensync/atom-s3-%s/calibration/command", hardwareId);
   snprintf(calibrationStateTopic, sizeof(calibrationStateTopic),
            "greensync/atom-s3-%s/calibration/state", hardwareId);
+  snprintf(pumpEvaluationCommandTopic, sizeof(pumpEvaluationCommandTopic),
+           "greensync/atom-s3-%s/pump-evaluation/command", hardwareId);
+  snprintf(pumpEvaluationStateTopic, sizeof(pumpEvaluationStateTopic),
+           "greensync/atom-s3-%s/pump-evaluation/state", hardwareId);
 }
 
 bool publishRetained(const char* label, const char* topic, const char* payload) {
@@ -110,6 +118,10 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
     if (calibration != nullptr &&
         (calibration->isActive() || calibration->hasPendingCommand())) {
       Serial.println("OTA command rejected: calibration is active");
+    } else if (pumpEvaluation != nullptr &&
+               (pumpEvaluation->isActive() ||
+                pumpEvaluation->hasPendingCommand())) {
+      Serial.println("OTA command rejected: pump evaluation is active");
     } else if (ota == nullptr || !ota->queueCommand(payload, length)) {
       Serial.println("OTA command rejected: updater is busy or payload is invalid");
     }
@@ -117,8 +129,23 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
   }
 
   if (strcmp(topic, calibrationCommandTopic) == 0) {
-    if (calibration == nullptr || !calibration->queueCommand(payload, length)) {
+    if (pumpEvaluation != nullptr &&
+        (pumpEvaluation->isActive() ||
+         pumpEvaluation->hasPendingCommand())) {
+      Serial.println("Calibration command rejected: pump evaluation is active");
+    } else if (calibration == nullptr ||
+               !calibration->queueCommand(payload, length)) {
       Serial.println("Calibration command rejected: payload is invalid or pending");
+    }
+    return;
+  }
+
+  if (strcmp(topic, pumpEvaluationCommandTopic) == 0) {
+    if ((calibration != nullptr &&
+         (calibration->isActive() || calibration->hasPendingCommand())) ||
+        pumpEvaluation == nullptr ||
+        !pumpEvaluation->queueCommand(payload, length)) {
+      Serial.println("Pump evaluation command rejected: unsafe, invalid, or busy");
     }
     return;
   }
@@ -170,10 +197,12 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
 }
 
 void MQTTService::begin(WateringSettings* settings, OtaService* otaService,
-                        CalibrationService* calibrationService) {
+                        CalibrationService* calibrationService,
+                        PumpEvaluationService* pumpEvaluationService) {
   wateringSettings = settings;
   ota = otaService;
   calibration = calibrationService;
+  pumpEvaluation = pumpEvaluationService;
   initializeDeviceIdentity();
   if (!client.setBufferSize(MqttBufferSize)) {
     Serial.println("MQTT buffer allocation FAILED");
@@ -256,6 +285,12 @@ bool MQTTService::connect() {
   Serial.print(calibrationCommandTopic);
   Serial.print(", result=");
   Serial.println(calibrationSubscribed ? "OK" : "FAILED");
+  const bool pumpEvaluationSubscribed =
+      client.subscribe(pumpEvaluationCommandTopic, 1);
+  Serial.print("MQTT subscribe topic=");
+  Serial.print(pumpEvaluationCommandTopic);
+  Serial.print(", result=");
+  Serial.println(pumpEvaluationSubscribed ? "OK" : "FAILED");
 
   const bool versionPublished =
       publishRetained("OTA version", otaVersionTopic, Config::FirmwareVersion);
@@ -263,10 +298,13 @@ bool MQTTService::connect() {
   const bool discoveryPublished = publishDiscovery();
   const bool calibrationStatePublished =
       calibration == nullptr || calibration->publishCurrentState();
+  const bool pumpEvaluationStatePublished =
+      pumpEvaluation == nullptr || pumpEvaluation->publishCurrentState();
   Serial.print("MQTT Discovery summary=");
   Serial.println(discoveryPublished ? "ALL OK" : "FAILED");
   return thresholdSubscribed && otaSubscribed && calibrationSubscribed &&
-         versionPublished && discoveryPublished && calibrationStatePublished;
+         pumpEvaluationSubscribed && versionPublished && discoveryPublished &&
+         calibrationStatePublished && pumpEvaluationStatePublished;
 }
 
 bool MQTTService::publishDiscovery() {
@@ -430,10 +468,76 @@ const bool thresholdOk =
   const bool calibrationStatusOk = publishRetained(
       "discovery calibration status", discoveryTopic, discoveryPayload);
 
+  const char* evaluationObjectIds[] = {"pump_test_a", "pump_test_b",
+                                       "pump_test_c", "pump_test_d"};
+  const char* evaluationNames[] = {
+      "試験A：250ms ON / 1500ms OFF × 10回",
+      "試験B：500ms ON / 1500ms OFF × 10回",
+      "試験C：750ms ON / 1500ms OFF × 10回",
+      "試験D：1000ms ON / 1500ms OFF × 10回"};
+  const char* evaluationCommands[] = {"TEST_A", "TEST_B", "TEST_C",
+                                      "TEST_D"};
+  bool pumpEvaluationDiscoveryOk = true;
+  for (int i = 0; i < 4; ++i) {
+    snprintf(discoveryTopic, sizeof(discoveryTopic),
+             "homeassistant/button/%s/%s/config", deviceIdentifier,
+             evaluationObjectIds[i]);
+    snprintf(
+        discoveryPayload, sizeof(discoveryPayload),
+        "{\"name\":\"%s\",\"unique_id\":\"%s_%s\","
+        "\"command_topic\":\"%s\",\"payload_press\":\"%s\","
+        "\"icon\":\"mdi:test-tube\",\"entity_category\":\"config\","
+        "\"device\":{\"identifiers\":[\"%s\"],\"name\":\"%s\","
+        "\"manufacturer\":\"GreenSync\","
+        "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+        evaluationNames[i], deviceIdentifier, evaluationObjectIds[i],
+        pumpEvaluationCommandTopic, evaluationCommands[i], deviceIdentifier,
+        deviceName);
+    pumpEvaluationDiscoveryOk =
+        publishRetained("discovery pump evaluation", discoveryTopic,
+                        discoveryPayload) &&
+        pumpEvaluationDiscoveryOk;
+  }
+
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
+           "homeassistant/button/%s/pump_test_cancel/config",
+           deviceIdentifier);
+  snprintf(
+      discoveryPayload, sizeof(discoveryPayload),
+      "{\"name\":\"ポンプ評価を緊急中止\","
+      "\"unique_id\":\"%s_pump_test_cancel\","
+      "\"command_topic\":\"%s\",\"payload_press\":\"CANCEL\","
+      "\"icon\":\"mdi:stop-circle\",\"device\":{\"identifiers\":[\"%s\"],"
+      "\"name\":\"%s\",\"manufacturer\":\"GreenSync\","
+      "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+      deviceIdentifier, pumpEvaluationCommandTopic, deviceIdentifier,
+      deviceName);
+  const bool pumpEvaluationCancelOk = publishRetained(
+      "discovery pump evaluation cancel", discoveryTopic, discoveryPayload);
+
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
+           "homeassistant/sensor/%s/pump_test_status/config",
+           deviceIdentifier);
+  snprintf(
+      discoveryPayload, sizeof(discoveryPayload),
+      "{\"name\":\"ポンプ評価状態\","
+      "\"unique_id\":\"%s_pump_test_status\","
+      "\"state_topic\":\"%s\",\"value_template\":\"{{ value_json.message }}\","
+      "\"json_attributes_topic\":\"%s\",\"icon\":\"mdi:water-pump\","
+      "\"device\":{\"identifiers\":[\"%s\"],\"name\":\"%s\","
+      "\"manufacturer\":\"GreenSync\","
+      "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+      deviceIdentifier, pumpEvaluationStateTopic, pumpEvaluationStateTopic,
+      deviceIdentifier, deviceName);
+  const bool pumpEvaluationStatusOk = publishRetained(
+      "discovery pump evaluation status", discoveryTopic, discoveryPayload);
+
   return moistureOk && wateredOk && rssiOk && thresholdOk && thresholdStateOk &&
          otaStatusOk && otaVersionOk && calibrationStartOk &&
          calibrationCaptureOk &&
-         calibrationCancelOk && calibrationStatusOk;
+         calibrationCancelOk && calibrationStatusOk &&
+         pumpEvaluationDiscoveryOk && pumpEvaluationCancelOk &&
+         pumpEvaluationStatusOk;
 }
 
 bool MQTTService::publishState(int raw, int moisturePercent, int rssi, bool watered) {
@@ -492,4 +596,25 @@ bool MQTTService::publishCalibrationState(const char* state, int dryRaw,
   char payload[384];
   if (serializeJson(document, payload, sizeof(payload)) == 0) return false;
   return publishRetained("calibration state", calibrationStateTopic, payload);
+}
+
+bool MQTTService::publishPumpEvaluationState(
+    const char* state, const char* profile, int pulseOnMs, int pulseOffMs,
+    int targetPulses, int completedPulses, int accumulatedOnMs,
+    const char* message) {
+  JsonDocument document;
+  document["state"] = state;
+  document["profile"] = profile;
+  document["pulseOnMs"] = pulseOnMs;
+  document["pulseOffMs"] = pulseOffMs;
+  document["targetPulses"] = targetPulses;
+  document["completedPulses"] = completedPulses;
+  document["accumulatedOnMs"] = accumulatedOnMs;
+  document["automaticWateringEnabled"] = Config::AutomaticWateringEnabled;
+  document["message"] = message;
+
+  char payload[512];
+  if (serializeJson(document, payload, sizeof(payload)) == 0) return false;
+  return publishRetained("pump evaluation state", pumpEvaluationStateTopic,
+                         payload);
 }

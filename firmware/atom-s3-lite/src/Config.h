@@ -17,11 +17,12 @@ constexpr int CalibrationTimeoutMs = 5 * 60 * 1000;
 
 constexpr int WateringThresholdPercent = 30;
 constexpr int WateringDurationMs = 3000;
+constexpr bool AutomaticWateringEnabled = false;
 constexpr int TelemetryIntervalMs = 10000;
 constexpr int EmergencyStopHoldMs = 1500;
 constexpr int WiFiReconnectIntervalMs = 10000;
 constexpr int MqttReconnectIntervalMs = 5000;
-constexpr char FirmwareVersion[] = "0.3.11";
+constexpr char FirmwareVersion[] = "0.3.12";
 constexpr char HardwareId[] = "m5stack-atoms3-lite";
 constexpr int OtaHttpTimeoutMs = 15000;
 constexpr int OtaVerificationTimeoutMs = 120000;

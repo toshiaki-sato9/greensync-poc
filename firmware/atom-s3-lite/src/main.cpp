@@ -5,6 +5,7 @@
 #include "CalibrationService.h"
 #include "MoistureSensor.h"
 #include "PumpController.h"
+#include "PumpEvaluationService.h"
 #include "WateringSettings.h"
 #include "WiFiService.h"
 #include "MQTTService.h"
@@ -12,6 +13,7 @@
 
 MoistureSensor moistureSensor;
 PumpController pump;
+PumpEvaluationService pumpEvaluation;
 WateringSettings settings;
 WiFiService wifi;
 MQTTService mqtt;
@@ -61,7 +63,8 @@ void publishCurrentState() {
   }
 
   mqtt.publishState(
-      lastRaw, lastPercent, wifi.rssi(), controllerState == ControllerState::Watering);
+      lastRaw, lastPercent, wifi.rssi(),
+      controllerState == ControllerState::Watering || pumpEvaluation.isPumpOn());
   mqtt.publishSettings();
 }
 
@@ -104,14 +107,19 @@ void setup() {
 
   wifi.begin();
   calibration.begin(&moistureSensor, &settings, &mqtt);
-  mqtt.begin(&settings, &ota, &calibration);
+  pumpEvaluation.begin(&pump, &mqtt);
+  mqtt.begin(&settings, &ota, &calibration, &pumpEvaluation);
   ota.begin(&mqtt);
 }
 
 void loop() {
   M5.update();
-  wifi.loop();
-  mqtt.loop();
+  // Do not enter network operations while a short evaluation pulse is ON.
+  // This keeps the physical ON time independent from TCP/MQTT timeouts.
+  if (!pumpEvaluation.isPumpOn()) {
+    wifi.loop();
+    mqtt.loop();
+  }
   const unsigned long nowMs = millis();
   bool shouldPublish = false;
 
@@ -139,16 +147,29 @@ void loop() {
     stopWatering();
     shouldPublish = true;
   }
+  if (pumpEvaluation.hasPendingCommand() &&
+      controllerState == ControllerState::Watering) {
+    stopWatering();
+    shouldPublish = true;
+  }
   calibration.loop(
       controllerState == ControllerState::Idle,
       controllerState == ControllerState::EmergencyStop,
       ota.isBusy() || ota.isPendingVerification() || ota.hasPendingCommand(),
       calibrationButtonClicked);
+  pumpEvaluation.loop(
+      controllerState == ControllerState::Idle,
+      controllerState == ControllerState::EmergencyStop,
+      ota.isBusy() || ota.isPendingVerification() || ota.hasPendingCommand(),
+      calibration.isActive() || calibration.hasPendingCommand());
   ota.loop(controllerState == ControllerState::Idle,
            controllerState == ControllerState::EmergencyStop);
   const bool wateringInhibited =
       ota.isBusy() || ota.isPendingVerification() || ota.hasPendingCommand() ||
       calibration.isActive() || calibration.hasPendingCommand();
+  const bool allWateringInhibited =
+      wateringInhibited || pumpEvaluation.isActive() ||
+      pumpEvaluation.hasPendingCommand();
 
   if (!hasSensorSample ||
       nowMs - lastTelemetryAtMs >= static_cast<unsigned long>(Config::TelemetryIntervalMs)) {
@@ -172,7 +193,8 @@ void loop() {
     }
     Serial.println();
 
-    if (!wateringInhibited && controllerState == ControllerState::Idle &&
+    if (Config::AutomaticWateringEnabled && !allWateringInhibited &&
+        controllerState == ControllerState::Idle &&
         lastPercent < settings.wateringThresholdPercent()) {
       startWatering(nowMs);
     }
