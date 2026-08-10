@@ -70,11 +70,14 @@ bool CalibrationService::hasPendingCommand() const {
 bool CalibrationService::publishCurrentState() {
   switch (state_) {
     case State::AwaitingDry:
-      return publish("AWAITING_DRY", "Waiting for dry reference button press");
+      return publish("AWAITING_DRY",
+                     "乾燥した基準土にセンサーを挿し、本体ボタンを押してください");
     case State::AwaitingWet:
-      return publish("AWAITING_WET", "Waiting for wet reference button press");
+      return publish(
+          "AWAITING_WET",
+          "十分に湿らせた基準土にセンサーを挿し、本体ボタンを押してください");
     case State::Idle:
-      return publish("IDLE", "Calibration is idle");
+      return publish("IDLE", "待機中（校正を開始できます）");
   }
   return false;
 }
@@ -94,7 +97,7 @@ void CalibrationService::start(bool controllerIdle, bool emergencyStopActive,
   startedAtMs_ = millis();
   state_ = State::AwaitingDry;
   publish("AWAITING_DRY",
-          "Place the sensor in the dry reference, then press the Atom button");
+          "乾燥した基準土にセンサーを挿し、本体ボタンを押してください");
 }
 
 void CalibrationService::capturePoint() {
@@ -107,7 +110,7 @@ void CalibrationService::capturePoint() {
     pendingDryRaw_ = sampleRaw;
     state_ = State::AwaitingWet;
     publish("AWAITING_WET",
-            "Dry point captured; place the sensor in saturated reference soil, then press the Atom button",
+            "乾燥値を取得しました。十分に湿らせた基準土に移し、本体ボタンを押してください",
             sampleRaw);
     return;
   }
@@ -116,20 +119,20 @@ void CalibrationService::capturePoint() {
   if (pendingDryRaw_ <= wetRaw ||
       pendingDryRaw_ - wetRaw < Config::CalibrationMinimumSpanRaw) {
     state_ = State::Idle;
-    publish("FAILED", "Calibration span is invalid; previous values were kept",
+    publish("FAILED", "校正失敗：乾燥値と湿潤値の差が不足しています（以前の値を維持）",
             wetRaw);
     pendingDryRaw_ = 0;
     return;
   }
   if (!settings_->setMoistureCalibration(pendingDryRaw_, wetRaw)) {
     state_ = State::Idle;
-    publish("FAILED", "Could not save calibration; previous values were kept",
+    publish("FAILED", "校正値を保存できませんでした（以前の値を維持）",
             wetRaw);
     pendingDryRaw_ = 0;
     return;
   }
   state_ = State::Idle;
-  publish("SUCCEEDED", "Moisture calibration saved", wetRaw);
+  publish("SUCCEEDED", "校正完了：新しい乾燥値と湿潤値を保存しました", wetRaw);
   pendingDryRaw_ = 0;
 }
 

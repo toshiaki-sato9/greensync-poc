@@ -372,10 +372,10 @@ const bool thresholdOk =
            deviceIdentifier);
   snprintf(
       discoveryPayload, sizeof(discoveryPayload),
-      "{\"name\":\"Start Moisture Calibration\","
+      "{\"name\":\"校正開始（最初は乾燥状態）\","
       "\"unique_id\":\"%s_moisture_calibration_start\","
       "\"command_topic\":\"%s\",\"payload_press\":\"START\","
-      "\"entity_category\":\"config\",\"device\":{\"identifiers\":[\"%s\"],"
+      "\"icon\":\"mdi:tune-vertical\",\"device\":{\"identifiers\":[\"%s\"],"
       "\"name\":\"%s\",\"manufacturer\":\"GreenSync\","
       "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
       deviceIdentifier, calibrationCommandTopic, deviceIdentifier, deviceName);
@@ -387,10 +387,10 @@ const bool thresholdOk =
            deviceIdentifier);
   snprintf(
       discoveryPayload, sizeof(discoveryPayload),
-      "{\"name\":\"Cancel Moisture Calibration\","
+      "{\"name\":\"校正を中止\","
       "\"unique_id\":\"%s_moisture_calibration_cancel\","
       "\"command_topic\":\"%s\",\"payload_press\":\"CANCEL\","
-      "\"entity_category\":\"config\",\"device\":{\"identifiers\":[\"%s\"],"
+      "\"icon\":\"mdi:cancel\",\"device\":{\"identifiers\":[\"%s\"],"
       "\"name\":\"%s\",\"manufacturer\":\"GreenSync\","
       "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
       deviceIdentifier, calibrationCommandTopic, deviceIdentifier, deviceName);
@@ -402,10 +402,10 @@ const bool thresholdOk =
            deviceIdentifier);
   snprintf(
       discoveryPayload, sizeof(discoveryPayload),
-      "{\"name\":\"Moisture Calibration Status\","
+      "{\"name\":\"校正手順・結果\","
       "\"unique_id\":\"%s_moisture_calibration_status\","
-      "\"state_topic\":\"%s\",\"value_template\":\"{{ value_json.state }}\","
-      "\"json_attributes_topic\":\"%s\",\"entity_category\":\"diagnostic\","
+      "\"state_topic\":\"%s\",\"value_template\":\"{{ value_json.message }}\","
+      "\"json_attributes_topic\":\"%s\",\"icon\":\"mdi:progress-wrench\","
       "\"device\":{\"identifiers\":[\"%s\"],\"name\":\"%s\","
       "\"manufacturer\":\"GreenSync\","
       "\"model\":\"ATOMS3 Lite Watering Unit\"}}",

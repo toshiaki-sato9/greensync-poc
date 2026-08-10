@@ -11,15 +11,15 @@ AtomS3 Lite firmware 0.3.8以降は、端末ごとにDry/Wetの2点校正値をN
 
 ## 操作手順
 
-1. Home Assistantで対象端末の「Start Moisture Calibration」を押す。
-2. 「Moisture Calibration Status」が `AWAITING_DRY` になったことを確認する。
+1. Home Assistantで対象端末の「校正開始（最初は乾燥状態）」を押す。
+2. 「校正手順・結果」に乾燥側の操作案内が表示されたことを確認する。
 3. センサー測定部を乾燥基準状態に置き、値が安定してからAtomボタンを短押しする。
-4. 状態が `AWAITING_WET` になったことを確認する。
+4. 「校正手順・結果」に湿潤側の操作案内が表示されたことを確認する。詳細属性の `state` は `AWAITING_WET`、`pendingDryRaw` は取得済みの乾燥値を示す。
 5. センサーを、実運用と同じ十分に湿った基準土壌へ通常と同じ深さで挿入する。
 6. 値が安定してからAtomボタンを短押しする。
-7. 状態が `SUCCEEDED` になり、`dryRaw`と`wetRaw`が更新されたことを確認する。
+7. 「校正手順・結果」に校正完了と表示されたことを確認する。詳細属性の `state` は `SUCCEEDED`、`dryRaw` と `wetRaw` は保存された校正値を示す。
 
-Dry/Wetの差が100 ADC count未満、またはDry値がWet値以下の場合、校正は `FAILED` となり、以前の値を維持する。開始から5分経過するとタイムアウトする。「Cancel Moisture Calibration」でいつでも中止できる。
+Dry/Wetの差が100 ADC count未満、またはDry値がWet値以下の場合、校正は `FAILED` となり、以前の値を維持する。開始から5分経過するとタイムアウトする。「校正を中止」でいつでも中止できる。
 
 ## MQTTインターフェース
 
