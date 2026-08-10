@@ -33,6 +33,8 @@ char otaStateTopic[96];
 char otaVersionTopic[96];
 char calibrationCommandTopic[96];
 char calibrationStateTopic[96];
+char discoveryTopic[128];
+char discoveryPayload[768];
 unsigned long lastConnectAttemptAtMs = 0;
 bool connectionAttempted = false;
 bool wasConnected = false;
@@ -272,13 +274,10 @@ bool MQTTService::publishDiscovery() {
   Serial.print("MQTT connected=");
   Serial.println(client.connected());
 
-  char moistureConfigTopic[128];
-  snprintf(moistureConfigTopic, sizeof(moistureConfigTopic),
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/sensor/%s/moisture/config", deviceIdentifier);
-
-  char moistureConfig[768];
   snprintf(
-      moistureConfig, sizeof(moistureConfig),
+      discoveryPayload, sizeof(discoveryPayload),
       "{\"name\":\"Soil Moisture\",\"unique_id\":\"%s_moisture\","
       "\"state_topic\":\"%s\",\"value_template\":\"{{ value_json.moisture }}\","
       "\"unit_of_measurement\":\"%s\",\"device_class\":\"moisture\","
@@ -288,15 +287,12 @@ bool MQTTService::publishDiscovery() {
       deviceIdentifier, stateTopic, "%", deviceIdentifier, deviceName);
 
   const bool moistureOk =
-      publishRetained("discovery moisture", moistureConfigTopic, moistureConfig);
+      publishRetained("discovery moisture", discoveryTopic, discoveryPayload);
 
-  char wateredConfigTopic[128];
-  snprintf(wateredConfigTopic, sizeof(wateredConfigTopic),
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/binary_sensor/%s/watered/config", deviceIdentifier);
-
-  char wateredConfig[768];
   snprintf(
-      wateredConfig, sizeof(wateredConfig),
+      discoveryPayload, sizeof(discoveryPayload),
       "{\"name\":\"Pump Active\",\"unique_id\":\"%s_pump_active\","
       "\"state_topic\":\"%s\","
       "\"value_template\":\"{{ 'ON' if value_json.watered else 'OFF' }}\","
@@ -306,15 +302,12 @@ bool MQTTService::publishDiscovery() {
       deviceIdentifier, stateTopic, deviceIdentifier, deviceName);
 
 const bool wateredOk =
-  publishRetained("discovery pump", wateredConfigTopic, wateredConfig);
+  publishRetained("discovery pump", discoveryTopic, discoveryPayload);
 
-  char rssiConfigTopic[128];
-  snprintf(rssiConfigTopic, sizeof(rssiConfigTopic),
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/sensor/%s/rssi/config", deviceIdentifier);
-
-  char rssiConfig[768];
   snprintf(
-      rssiConfig, sizeof(rssiConfig),
+      discoveryPayload, sizeof(discoveryPayload),
       "{\"name\":\"WiFi RSSI\",\"unique_id\":\"%s_rssi\","
       "\"state_topic\":\"%s\",\"value_template\":\"{{ value_json.rssi }}\","
       "\"unit_of_measurement\":\"dBm\",\"device_class\":\"signal_strength\","
@@ -324,16 +317,13 @@ const bool wateredOk =
       deviceIdentifier, stateTopic, deviceIdentifier, deviceName);
 
 const bool rssiOk =
-  publishRetained("discovery rssi", rssiConfigTopic, rssiConfig);
+  publishRetained("discovery rssi", discoveryTopic, discoveryPayload);
 
-  char thresholdConfigTopic[128];
-  snprintf(thresholdConfigTopic, sizeof(thresholdConfigTopic),
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/number/%s/watering_threshold/config",
            deviceIdentifier);
-
-  char thresholdConfig[768];
   snprintf(
-      thresholdConfig, sizeof(thresholdConfig),
+      discoveryPayload, sizeof(discoveryPayload),
       "{\"name\":\"Watering Threshold\","
       "\"unique_id\":\"%s_watering_threshold\",\"command_topic\":\"%s\","
       "\"command_template\":\"{{ value | int }}\","
@@ -347,16 +337,14 @@ const bool rssiOk =
       deviceIdentifier, deviceName);
 
 const bool thresholdOk =
-  publishRetained("discovery threshold", thresholdConfigTopic, thresholdConfig);
+  publishRetained("discovery threshold", discoveryTopic, discoveryPayload);
 
   const bool thresholdStateOk = publishThresholdState();
 
-  char otaStatusConfigTopic[128];
-  snprintf(otaStatusConfigTopic, sizeof(otaStatusConfigTopic),
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/sensor/%s/ota_status/config", deviceIdentifier);
-  char otaStatusConfig[768];
   snprintf(
-      otaStatusConfig, sizeof(otaStatusConfig),
+      discoveryPayload, sizeof(discoveryPayload),
       "{\"name\":\"OTA Status\",\"unique_id\":\"%s_ota_status\","
       "\"state_topic\":\"%s\",\"value_template\":\"{{ value_json.state }}\","
       "\"json_attributes_topic\":\"%s\",\"device\":{\"identifiers\":[\"%s\"],"
@@ -364,30 +352,26 @@ const bool thresholdOk =
       "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
       deviceIdentifier, otaStateTopic, otaStateTopic, deviceIdentifier, deviceName);
   const bool otaStatusOk =
-      publishRetained("discovery OTA status", otaStatusConfigTopic, otaStatusConfig);
+      publishRetained("discovery OTA status", discoveryTopic, discoveryPayload);
 
-  char otaVersionConfigTopic[128];
-  snprintf(otaVersionConfigTopic, sizeof(otaVersionConfigTopic),
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/sensor/%s/firmware_version/config", deviceIdentifier);
-  char otaVersionConfig[768];
   snprintf(
-      otaVersionConfig, sizeof(otaVersionConfig),
+      discoveryPayload, sizeof(discoveryPayload),
       "{\"name\":\"Firmware Version\",\"unique_id\":\"%s_firmware_version\","
       "\"state_topic\":\"%s\",\"entity_category\":\"diagnostic\","
       "\"device\":{\"identifiers\":[\"%s\"],\"name\":\"%s\","
       "\"manufacturer\":\"GreenSync\",\"model\":\"ATOMS3 Lite Watering Unit\"}}",
       deviceIdentifier, otaVersionTopic, deviceIdentifier, deviceName);
   const bool otaVersionOk =
-      publishRetained("discovery firmware version", otaVersionConfigTopic,
-                      otaVersionConfig);
+      publishRetained("discovery firmware version", discoveryTopic,
+                      discoveryPayload);
 
-  char calibrationStartConfigTopic[128];
-  snprintf(calibrationStartConfigTopic, sizeof(calibrationStartConfigTopic),
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/button/%s/moisture_calibration_start/config",
            deviceIdentifier);
-  char calibrationStartConfig[768];
   snprintf(
-      calibrationStartConfig, sizeof(calibrationStartConfig),
+      discoveryPayload, sizeof(discoveryPayload),
       "{\"name\":\"Start Moisture Calibration\","
       "\"unique_id\":\"%s_moisture_calibration_start\","
       "\"command_topic\":\"%s\",\"payload_press\":\"START\","
@@ -396,16 +380,13 @@ const bool thresholdOk =
       "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
       deviceIdentifier, calibrationCommandTopic, deviceIdentifier, deviceName);
   const bool calibrationStartOk = publishRetained(
-      "discovery calibration start", calibrationStartConfigTopic,
-      calibrationStartConfig);
+      "discovery calibration start", discoveryTopic, discoveryPayload);
 
-  char calibrationCancelConfigTopic[128];
-  snprintf(calibrationCancelConfigTopic, sizeof(calibrationCancelConfigTopic),
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/button/%s/moisture_calibration_cancel/config",
            deviceIdentifier);
-  char calibrationCancelConfig[768];
   snprintf(
-      calibrationCancelConfig, sizeof(calibrationCancelConfig),
+      discoveryPayload, sizeof(discoveryPayload),
       "{\"name\":\"Cancel Moisture Calibration\","
       "\"unique_id\":\"%s_moisture_calibration_cancel\","
       "\"command_topic\":\"%s\",\"payload_press\":\"CANCEL\","
@@ -414,16 +395,13 @@ const bool thresholdOk =
       "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
       deviceIdentifier, calibrationCommandTopic, deviceIdentifier, deviceName);
   const bool calibrationCancelOk = publishRetained(
-      "discovery calibration cancel", calibrationCancelConfigTopic,
-      calibrationCancelConfig);
+      "discovery calibration cancel", discoveryTopic, discoveryPayload);
 
-  char calibrationStatusConfigTopic[128];
-  snprintf(calibrationStatusConfigTopic, sizeof(calibrationStatusConfigTopic),
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/sensor/%s/moisture_calibration_status/config",
            deviceIdentifier);
-  char calibrationStatusConfig[768];
   snprintf(
-      calibrationStatusConfig, sizeof(calibrationStatusConfig),
+      discoveryPayload, sizeof(discoveryPayload),
       "{\"name\":\"Moisture Calibration Status\","
       "\"unique_id\":\"%s_moisture_calibration_status\","
       "\"state_topic\":\"%s\",\"value_template\":\"{{ value_json.state }}\","
@@ -434,8 +412,7 @@ const bool thresholdOk =
       deviceIdentifier, calibrationStateTopic, calibrationStateTopic,
       deviceIdentifier, deviceName);
   const bool calibrationStatusOk = publishRetained(
-      "discovery calibration status", calibrationStatusConfigTopic,
-      calibrationStatusConfig);
+      "discovery calibration status", discoveryTopic, discoveryPayload);
 
   return moistureOk && wateredOk && rssiOk && thresholdOk && thresholdStateOk &&
          otaStatusOk && otaVersionOk && calibrationStartOk &&
