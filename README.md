@@ -10,6 +10,8 @@ PoC-001:
 
 Firmware release uploads are documented in `docs/ota-firmware-update-spec.md`.
 The build-to-deployment runbook is `docs/ota-operation-guide.md`.
+The per-device moisture calibration procedure is
+`docs/moisture-calibration-guide.md`.
 Use `scripts/publish-firmware.sh` to validate or upload application binaries
 from a PlatformIO build directory.
 

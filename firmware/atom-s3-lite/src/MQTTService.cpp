@@ -1,4 +1,5 @@
 #include "MQTTService.h"
+#include "CalibrationService.h"
 #include "Config.h"
 #include "OtaService.h"
 #include "Secrets.h"
@@ -18,6 +19,7 @@ WiFiClient wifiClient;
 PubSubClient client(wifiClient);
 WateringSettings* wateringSettings = nullptr;
 OtaService* ota = nullptr;
+CalibrationService* calibration = nullptr;
 
 constexpr uint16_t MqttBufferSize = 1024;
 char deviceId[40];
@@ -29,6 +31,8 @@ char thresholdSetTopic[96];
 char otaCommandTopic[96];
 char otaStateTopic[96];
 char otaVersionTopic[96];
+char calibrationCommandTopic[96];
+char calibrationStateTopic[96];
 unsigned long lastConnectAttemptAtMs = 0;
 bool connectionAttempted = false;
 bool wasConnected = false;
@@ -55,6 +59,10 @@ void initializeDeviceIdentity() {
            "greensync/atom-s3-%s/ota/state", hardwareId);
   snprintf(otaVersionTopic, sizeof(otaVersionTopic),
            "greensync/atom-s3-%s/ota/version", hardwareId);
+  snprintf(calibrationCommandTopic, sizeof(calibrationCommandTopic),
+           "greensync/atom-s3-%s/calibration/command", hardwareId);
+  snprintf(calibrationStateTopic, sizeof(calibrationStateTopic),
+           "greensync/atom-s3-%s/calibration/state", hardwareId);
 }
 
 bool publishRetained(const char* label, const char* topic, const char* payload) {
@@ -97,8 +105,18 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
   Serial.println();
 
   if (strcmp(topic, otaCommandTopic) == 0) {
-    if (ota == nullptr || !ota->queueCommand(payload, length)) {
+    if (calibration != nullptr &&
+        (calibration->isActive() || calibration->hasPendingCommand())) {
+      Serial.println("OTA command rejected: calibration is active");
+    } else if (ota == nullptr || !ota->queueCommand(payload, length)) {
       Serial.println("OTA command rejected: updater is busy or payload is invalid");
+    }
+    return;
+  }
+
+  if (strcmp(topic, calibrationCommandTopic) == 0) {
+    if (calibration == nullptr || !calibration->queueCommand(payload, length)) {
+      Serial.println("Calibration command rejected: payload is invalid or pending");
     }
     return;
   }
@@ -149,9 +167,11 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
 }
 }
 
-void MQTTService::begin(WateringSettings* settings, OtaService* otaService) {
+void MQTTService::begin(WateringSettings* settings, OtaService* otaService,
+                        CalibrationService* calibrationService) {
   wateringSettings = settings;
   ota = otaService;
+  calibration = calibrationService;
   initializeDeviceIdentity();
   if (!client.setBufferSize(MqttBufferSize)) {
     Serial.println("MQTT buffer allocation FAILED");
@@ -229,14 +249,22 @@ bool MQTTService::connect() {
   Serial.print(otaCommandTopic);
   Serial.print(", result=");
   Serial.println(otaSubscribed ? "OK" : "FAILED");
+  const bool calibrationSubscribed = client.subscribe(calibrationCommandTopic, 1);
+  Serial.print("MQTT subscribe topic=");
+  Serial.print(calibrationCommandTopic);
+  Serial.print(", result=");
+  Serial.println(calibrationSubscribed ? "OK" : "FAILED");
 
   const bool versionPublished =
       publishRetained("OTA version", otaVersionTopic, Config::FirmwareVersion);
 
   const bool discoveryPublished = publishDiscovery();
+  const bool calibrationStatePublished =
+      calibration == nullptr || calibration->publishCurrentState();
   Serial.print("MQTT Discovery summary=");
   Serial.println(discoveryPublished ? "ALL OK" : "FAILED");
-  return thresholdSubscribed && otaSubscribed && versionPublished && discoveryPublished;
+  return thresholdSubscribed && otaSubscribed && calibrationSubscribed &&
+         versionPublished && discoveryPublished && calibrationStatePublished;
 }
 
 bool MQTTService::publishDiscovery() {
@@ -353,8 +381,65 @@ const bool thresholdOk =
       publishRetained("discovery firmware version", otaVersionConfigTopic,
                       otaVersionConfig);
 
+  char calibrationStartConfigTopic[128];
+  snprintf(calibrationStartConfigTopic, sizeof(calibrationStartConfigTopic),
+           "homeassistant/button/%s/moisture_calibration_start/config",
+           deviceIdentifier);
+  char calibrationStartConfig[768];
+  snprintf(
+      calibrationStartConfig, sizeof(calibrationStartConfig),
+      "{\"name\":\"Start Moisture Calibration\","
+      "\"unique_id\":\"%s_moisture_calibration_start\","
+      "\"command_topic\":\"%s\",\"payload_press\":\"START\","
+      "\"entity_category\":\"config\",\"device\":{\"identifiers\":[\"%s\"],"
+      "\"name\":\"%s\",\"manufacturer\":\"GreenSync\","
+      "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+      deviceIdentifier, calibrationCommandTopic, deviceIdentifier, deviceName);
+  const bool calibrationStartOk = publishRetained(
+      "discovery calibration start", calibrationStartConfigTopic,
+      calibrationStartConfig);
+
+  char calibrationCancelConfigTopic[128];
+  snprintf(calibrationCancelConfigTopic, sizeof(calibrationCancelConfigTopic),
+           "homeassistant/button/%s/moisture_calibration_cancel/config",
+           deviceIdentifier);
+  char calibrationCancelConfig[768];
+  snprintf(
+      calibrationCancelConfig, sizeof(calibrationCancelConfig),
+      "{\"name\":\"Cancel Moisture Calibration\","
+      "\"unique_id\":\"%s_moisture_calibration_cancel\","
+      "\"command_topic\":\"%s\",\"payload_press\":\"CANCEL\","
+      "\"entity_category\":\"config\",\"device\":{\"identifiers\":[\"%s\"],"
+      "\"name\":\"%s\",\"manufacturer\":\"GreenSync\","
+      "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+      deviceIdentifier, calibrationCommandTopic, deviceIdentifier, deviceName);
+  const bool calibrationCancelOk = publishRetained(
+      "discovery calibration cancel", calibrationCancelConfigTopic,
+      calibrationCancelConfig);
+
+  char calibrationStatusConfigTopic[128];
+  snprintf(calibrationStatusConfigTopic, sizeof(calibrationStatusConfigTopic),
+           "homeassistant/sensor/%s/moisture_calibration_status/config",
+           deviceIdentifier);
+  char calibrationStatusConfig[768];
+  snprintf(
+      calibrationStatusConfig, sizeof(calibrationStatusConfig),
+      "{\"name\":\"Moisture Calibration Status\","
+      "\"unique_id\":\"%s_moisture_calibration_status\","
+      "\"state_topic\":\"%s\",\"value_template\":\"{{ value_json.state }}\","
+      "\"json_attributes_topic\":\"%s\",\"entity_category\":\"diagnostic\","
+      "\"device\":{\"identifiers\":[\"%s\"],\"name\":\"%s\","
+      "\"manufacturer\":\"GreenSync\","
+      "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+      deviceIdentifier, calibrationStateTopic, calibrationStateTopic,
+      deviceIdentifier, deviceName);
+  const bool calibrationStatusOk = publishRetained(
+      "discovery calibration status", calibrationStatusConfigTopic,
+      calibrationStatusConfig);
+
   return moistureOk && wateredOk && rssiOk && thresholdOk && thresholdStateOk &&
-         otaStatusOk && otaVersionOk;
+         otaStatusOk && otaVersionOk && calibrationStartOk &&
+         calibrationCancelOk && calibrationStatusOk;
 }
 
 bool MQTTService::publishState(int raw, int moisturePercent, int rssi, bool watered) {
@@ -396,4 +481,21 @@ bool MQTTService::publishOtaState(const char* state, const char* requestId,
     return false;
   }
   return publishRetained("OTA state", otaStateTopic, payload);
+}
+
+bool MQTTService::publishCalibrationState(const char* state, int dryRaw,
+                                          int wetRaw, int pendingDryRaw,
+                                          int sampleRaw,
+                                          const char* message) {
+  JsonDocument document;
+  document["state"] = state;
+  document["dryRaw"] = dryRaw;
+  document["wetRaw"] = wetRaw;
+  if (pendingDryRaw > 0) document["pendingDryRaw"] = pendingDryRaw;
+  if (sampleRaw >= 0) document["sampleRaw"] = sampleRaw;
+  document["message"] = message;
+
+  char payload[384];
+  if (serializeJson(document, payload, sizeof(payload)) == 0) return false;
+  return publishRetained("calibration state", calibrationStateTopic, payload);
 }

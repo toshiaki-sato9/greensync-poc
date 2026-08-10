@@ -2,6 +2,7 @@
 #include <M5Unified.h>
 
 #include "Config.h"
+#include "CalibrationService.h"
 #include "MoistureSensor.h"
 #include "PumpController.h"
 #include "WateringSettings.h"
@@ -15,6 +16,7 @@ WateringSettings settings;
 WiFiService wifi;
 MQTTService mqtt;
 OtaService ota;
+CalibrationService calibration;
 
 namespace {
 enum class ControllerState {
@@ -92,16 +94,17 @@ void setup() {
 
   pump.begin();
   pump.off();
-  moistureSensor.begin();
+  settings.begin();
+  moistureSensor.begin(&settings);
 
   Serial.println();
   Serial.print("===== GreenSync Firmware v");
   Serial.print(Config::FirmwareVersion);
   Serial.println(" MQTT + OTA =====");
 
-  settings.begin();
   wifi.begin();
-  mqtt.begin(&settings, &ota);
+  calibration.begin(&moistureSensor, &settings, &mqtt);
+  mqtt.begin(&settings, &ota, &calibration);
   ota.begin(&mqtt);
 }
 
@@ -118,6 +121,9 @@ void loop() {
     shouldPublish = true;
   }
 
+  const bool calibrationButtonClicked =
+      calibration.isActive() && M5.BtnA.wasClicked();
+
   if (controllerState == ControllerState::Watering &&
       nowMs - wateringStartedAtMs >= static_cast<unsigned long>(Config::WateringDurationMs)) {
     stopWatering();
@@ -128,10 +134,21 @@ void loop() {
     stopWatering();
     shouldPublish = true;
   }
+  if (calibration.hasPendingCommand() &&
+      controllerState == ControllerState::Watering) {
+    stopWatering();
+    shouldPublish = true;
+  }
+  calibration.loop(
+      controllerState == ControllerState::Idle,
+      controllerState == ControllerState::EmergencyStop,
+      ota.isBusy() || ota.isPendingVerification() || ota.hasPendingCommand(),
+      calibrationButtonClicked);
   ota.loop(controllerState == ControllerState::Idle,
            controllerState == ControllerState::EmergencyStop);
   const bool wateringInhibited =
-      ota.isBusy() || ota.isPendingVerification() || ota.hasPendingCommand();
+      ota.isBusy() || ota.isPendingVerification() || ota.hasPendingCommand() ||
+      calibration.isActive() || calibration.hasPendingCommand();
 
   if (!hasSensorSample ||
       nowMs - lastTelemetryAtMs >= static_cast<unsigned long>(Config::TelemetryIntervalMs)) {
