@@ -372,7 +372,7 @@ const bool thresholdOk =
            deviceIdentifier);
   snprintf(
       discoveryPayload, sizeof(discoveryPayload),
-      "{\"name\":\"校正開始（最初は乾燥状態）\","
+      "{\"name\":\"① 乾燥土で校正開始\","
       "\"unique_id\":\"%s_moisture_calibration_start\","
       "\"command_topic\":\"%s\",\"payload_press\":\"START\","
       "\"icon\":\"mdi:tune-vertical\",\"device\":{\"identifiers\":[\"%s\"],"
@@ -383,6 +383,21 @@ const bool thresholdOk =
       "discovery calibration start", discoveryTopic, discoveryPayload);
 
   snprintf(discoveryTopic, sizeof(discoveryTopic),
+           "homeassistant/button/%s/moisture_calibration_capture/config",
+           deviceIdentifier);
+  snprintf(
+      discoveryPayload, sizeof(discoveryPayload),
+      "{\"name\":\"② 表示された基準値を記録\","
+      "\"unique_id\":\"%s_moisture_calibration_capture\","
+      "\"command_topic\":\"%s\",\"payload_press\":\"CAPTURE\","
+      "\"icon\":\"mdi:content-save-check\",\"device\":{\"identifiers\":[\"%s\"],"
+      "\"name\":\"%s\",\"manufacturer\":\"GreenSync\","
+      "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+      deviceIdentifier, calibrationCommandTopic, deviceIdentifier, deviceName);
+  const bool calibrationCaptureOk = publishRetained(
+      "discovery calibration capture", discoveryTopic, discoveryPayload);
+
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/button/%s/moisture_calibration_cancel/config",
            deviceIdentifier);
   snprintf(
@@ -390,7 +405,8 @@ const bool thresholdOk =
       "{\"name\":\"校正を中止\","
       "\"unique_id\":\"%s_moisture_calibration_cancel\","
       "\"command_topic\":\"%s\",\"payload_press\":\"CANCEL\","
-      "\"icon\":\"mdi:cancel\",\"device\":{\"identifiers\":[\"%s\"],"
+      "\"icon\":\"mdi:cancel\",\"entity_category\":\"config\","
+      "\"device\":{\"identifiers\":[\"%s\"],"
       "\"name\":\"%s\",\"manufacturer\":\"GreenSync\","
       "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
       deviceIdentifier, calibrationCommandTopic, deviceIdentifier, deviceName);
@@ -402,7 +418,7 @@ const bool thresholdOk =
            deviceIdentifier);
   snprintf(
       discoveryPayload, sizeof(discoveryPayload),
-      "{\"name\":\"校正手順・結果\","
+      "{\"name\":\"次に行う校正操作\","
       "\"unique_id\":\"%s_moisture_calibration_status\","
       "\"state_topic\":\"%s\",\"value_template\":\"{{ value_json.message }}\","
       "\"json_attributes_topic\":\"%s\",\"icon\":\"mdi:progress-wrench\","
@@ -416,6 +432,7 @@ const bool thresholdOk =
 
   return moistureOk && wateredOk && rssiOk && thresholdOk && thresholdStateOk &&
          otaStatusOk && otaVersionOk && calibrationStartOk &&
+         calibrationCaptureOk &&
          calibrationCancelOk && calibrationStatusOk;
 }
 

@@ -31,7 +31,9 @@ bool CalibrationService::queueCommand(const byte* payload,
   }
   command.trim();
   command.toUpperCase();
-  if (command != "START" && command != "CANCEL") return false;
+  if (command != "START" && command != "CAPTURE" && command != "CANCEL") {
+    return false;
+  }
   queuedCommand_ = command;
   return true;
 }
@@ -43,6 +45,8 @@ void CalibrationService::loop(bool controllerIdle, bool emergencyStopActive,
     queuedCommand_ = "";
     if (command == "CANCEL") {
       cancel("Calibration cancelled");
+    } else if (command == "CAPTURE") {
+      capturePoint();
     } else if (command == "START") {
       start(controllerIdle, emergencyStopActive, otaUnavailable);
     }
@@ -71,11 +75,11 @@ bool CalibrationService::publishCurrentState() {
   switch (state_) {
     case State::AwaitingDry:
       return publish("AWAITING_DRY",
-                     "乾燥した基準土にセンサーを挿し、本体ボタンを押してください");
+                     "乾燥値が安定したら「② 表示された基準値を記録」を押してください");
     case State::AwaitingWet:
       return publish(
           "AWAITING_WET",
-          "十分に湿らせた基準土にセンサーを挿し、本体ボタンを押してください");
+          "十分に湿らせた基準土へ移し、値が安定したら「② 表示された基準値を記録」を押してください");
     case State::Idle:
       return publish("IDLE", "待機中（校正を開始できます）");
   }
@@ -97,7 +101,7 @@ void CalibrationService::start(bool controllerIdle, bool emergencyStopActive,
   startedAtMs_ = millis();
   state_ = State::AwaitingDry;
   publish("AWAITING_DRY",
-          "乾燥した基準土にセンサーを挿し、本体ボタンを押してください");
+          "乾燥値が安定したら「② 表示された基準値を記録」を押してください");
 }
 
 void CalibrationService::capturePoint() {
@@ -105,12 +109,16 @@ void CalibrationService::capturePoint() {
     cancel("Calibration service is unavailable");
     return;
   }
+  if (state_ == State::Idle) {
+    publish("FAILED", "先に「① 乾燥土で校正開始」を押してください");
+    return;
+  }
   const int sampleRaw = sensor_->readRaw();
   if (state_ == State::AwaitingDry) {
     pendingDryRaw_ = sampleRaw;
     state_ = State::AwaitingWet;
     publish("AWAITING_WET",
-            "乾燥値を取得しました。十分に湿らせた基準土に移し、本体ボタンを押してください",
+            "乾燥値を取得しました。十分に湿らせた基準土へ移し、値が安定したら「② 表示された基準値を記録」を押してください",
             sampleRaw);
     return;
   }
