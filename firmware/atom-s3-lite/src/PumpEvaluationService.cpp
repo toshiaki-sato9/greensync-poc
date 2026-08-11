@@ -9,9 +9,9 @@ constexpr size_t MaxCommandBytes = 16;
 
 bool resolveProfile(const String& name, int& dutyPercent, int& durationMs) {
   dutyPercent = Config::PumpWateringDutyPercent;
-  if (name == "TEST_15S") durationMs = 15000;
-  else if (name == "TEST_30S") durationMs = 30000;
-  else if (name == "TEST_60S") durationMs = 60000;
+  if (name == "TEST_3S") durationMs = 3000;
+  else if (name == "TEST_5S") durationMs = 5000;
+  else if (name == "TEST_10S") durationMs = 10000;
   else return false;
   return true;
 }
@@ -113,8 +113,8 @@ void PumpEvaluationService::start(const String& profileName,
 
   dutyPercent_ = duty;
   durationMs_ = duration;
-  profileName_ = duration == 15000 ? "PWM_50_15S" :
-                 duration == 30000 ? "PWM_50_30S" : "PWM_50_60S";
+  profileName_ = duration == 3000 ? "PWM_50_3S" :
+                 duration == 5000 ? "PWM_50_5S" : "PWM_50_10S";
   state_ = State::Running;
   publish("RUNNING", "20kHz・固定50% Dutyで時間散水中です");
   pump_->setDutyPercent(dutyPercent_);

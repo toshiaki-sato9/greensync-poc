@@ -486,9 +486,9 @@ const bool thresholdOk =
   const char* evaluationObjectIds[] = {"pump_test_a", "pump_test_b",
                                        "pump_test_c"};
   const char* evaluationNames[] = {
-      "固定50%散水・15秒", "固定50%散水・30秒",
-      "固定50%散水・60秒"};
-  const char* evaluationCommands[] = {"TEST_15S", "TEST_30S", "TEST_60S"};
+      "固定50%散水・3秒", "固定50%散水・5秒",
+      "固定50%散水・10秒"};
+  const char* evaluationCommands[] = {"TEST_3S", "TEST_5S", "TEST_10S"};
   bool pumpEvaluationDiscoveryOk = true;
   for (int i = 0; i < 3; ++i) {
     snprintf(discoveryTopic, sizeof(discoveryTopic),

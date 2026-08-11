@@ -32,6 +32,7 @@ enum class ControllerState {
 ControllerState controllerState = ControllerState::Idle;
 unsigned long lastTelemetryAtMs = 0;
 unsigned long wateringStartedAtMs = 0;
+unsigned long lastWateringMonitorAtMs = 0;
 unsigned long soakingStartedAtMs = 0;
 int wateringPulseCount = 0;
 int wateringCycleStartPercent = 0;
@@ -84,6 +85,7 @@ void publishCurrentState() {
 void startWateringPulse(unsigned long nowMs) {
   controllerState = ControllerState::Watering;
   wateringStartedAtMs = nowMs;
+  lastWateringMonitorAtMs = nowMs;
   pump.setDutyPercent(Config::PumpWateringDutyPercent);
   Serial.print("Watering pulse started: ");
   Serial.print(wateringPulseCount + 1);
@@ -183,6 +185,18 @@ void loop() {
       calibration.isActive() && M5.BtnA.wasClicked();
 
   if (controllerState == ControllerState::Watering &&
+      nowMs - lastWateringMonitorAtMs >=
+          static_cast<unsigned long>(Config::WateringActiveMonitorIntervalMs)) {
+    lastWateringMonitorAtMs = nowMs;
+    readMoistureSample();
+    if (lastPercent >= settings.wateringThresholdPercent()) {
+      Serial.println("Watering threshold reached during pulse. Pump stopping early.");
+      finishWateringPulse(nowMs);
+      shouldPublish = true;
+    }
+  }
+
+  if (controllerState == ControllerState::Watering &&
       nowMs - wateringStartedAtMs >= static_cast<unsigned long>(Config::WateringDurationMs)) {
     finishWateringPulse(nowMs);
     shouldPublish = true;
@@ -250,9 +264,7 @@ void loop() {
     }
     Serial.println();
 
-    const int stopThreshold = min(
-        100, settings.wateringThresholdPercent() +
-                 Config::WateringStopHysteresisPercent);
+    const int stopThreshold = settings.wateringThresholdPercent();
 
     if (controllerState == ControllerState::Soaking &&
         nowMs - soakingStartedAtMs >=
