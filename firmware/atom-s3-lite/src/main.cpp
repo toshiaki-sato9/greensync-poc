@@ -107,7 +107,7 @@ void setup() {
 
   wifi.begin();
   calibration.begin(&moistureSensor, &settings, &mqtt);
-  pumpEvaluation.begin(&pump, &mqtt);
+  pumpEvaluation.begin(&pump, &mqtt, &settings);
   mqtt.begin(&settings, &ota, &calibration, &pumpEvaluation);
   ota.begin(&mqtt);
 }

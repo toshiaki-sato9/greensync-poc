@@ -23,7 +23,9 @@ public:
                                const char* message);
   bool publishPumpEvaluationState(const char* state, const char* profile,
                                   int dutyPercent, int pwmFrequencyHz,
-                                  int durationMs, const char* message);
+                                  int durationMs, int measuredVolumeMl,
+                                  bool calibrated, int flowMilliMlPerSecond,
+                                  const char* message);
 
 private:
   bool connect();

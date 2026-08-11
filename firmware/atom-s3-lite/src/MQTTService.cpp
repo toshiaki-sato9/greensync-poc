@@ -37,6 +37,9 @@ char calibrationCommandTopic[96];
 char calibrationStateTopic[96];
 char pumpEvaluationCommandTopic[96];
 char pumpEvaluationStateTopic[96];
+char pumpCalibrationDutySetTopic[104];
+char pumpCalibrationDurationSetTopic[104];
+char pumpCalibrationVolumeSetTopic[104];
 char discoveryTopic[128];
 char discoveryPayload[768];
 unsigned long lastConnectAttemptAtMs = 0;
@@ -73,6 +76,14 @@ void initializeDeviceIdentity() {
            "greensync/atom-s3-%s/pump-evaluation/command", hardwareId);
   snprintf(pumpEvaluationStateTopic, sizeof(pumpEvaluationStateTopic),
            "greensync/atom-s3-%s/pump-evaluation/state", hardwareId);
+  snprintf(pumpCalibrationDutySetTopic, sizeof(pumpCalibrationDutySetTopic),
+           "greensync/atom-s3-%s/pump-calibration/duty/set", hardwareId);
+  snprintf(pumpCalibrationDurationSetTopic,
+           sizeof(pumpCalibrationDurationSetTopic),
+           "greensync/atom-s3-%s/pump-calibration/duration/set", hardwareId);
+  snprintf(pumpCalibrationVolumeSetTopic,
+           sizeof(pumpCalibrationVolumeSetTopic),
+           "greensync/atom-s3-%s/pump-calibration/volume/set", hardwareId);
 }
 
 bool publishRetained(const char* label, const char* topic, const char* payload) {
@@ -147,6 +158,36 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
         !pumpEvaluation->queueCommand(payload, length)) {
       Serial.println("Pump evaluation command rejected: unsafe, invalid, or busy");
     }
+    return;
+  }
+
+  if (strcmp(topic, pumpCalibrationDutySetTopic) == 0 ||
+      strcmp(topic, pumpCalibrationDurationSetTopic) == 0 ||
+      strcmp(topic, pumpCalibrationVolumeSetTopic) == 0) {
+    char valueBuffer[16];
+    if (length == 0 || length >= sizeof(valueBuffer) ||
+        pumpEvaluation == nullptr) {
+      Serial.println("Pump calibration value rejected: invalid payload");
+      return;
+    }
+    memcpy(valueBuffer, payload, length);
+    valueBuffer[length] = '\0';
+    char* end = nullptr;
+    const long value = strtol(valueBuffer, &end, 10);
+    if (end == valueBuffer || *end != '\0' || value < INT_MIN ||
+        value > INT_MAX) {
+      Serial.println("Pump calibration value rejected: not an integer");
+      return;
+    }
+    bool accepted = false;
+    if (strcmp(topic, pumpCalibrationDutySetTopic) == 0) {
+      accepted = pumpEvaluation->setDraftDutyPercent(int(value));
+    } else if (strcmp(topic, pumpCalibrationDurationSetTopic) == 0) {
+      accepted = pumpEvaluation->setDraftDurationSeconds(int(value));
+    } else {
+      accepted = pumpEvaluation->setMeasuredVolumeMl(int(value));
+    }
+    if (!accepted) Serial.println("Pump calibration value rejected");
     return;
   }
 
@@ -291,6 +332,11 @@ bool MQTTService::connect() {
   Serial.print(pumpEvaluationCommandTopic);
   Serial.print(", result=");
   Serial.println(pumpEvaluationSubscribed ? "OK" : "FAILED");
+  const bool pumpDutySubscribed = client.subscribe(pumpCalibrationDutySetTopic, 1);
+  const bool pumpDurationSubscribed =
+      client.subscribe(pumpCalibrationDurationSetTopic, 1);
+  const bool pumpVolumeSubscribed =
+      client.subscribe(pumpCalibrationVolumeSetTopic, 1);
 
   const bool versionPublished =
       publishRetained("OTA version", otaVersionTopic, Config::FirmwareVersion);
@@ -303,7 +349,8 @@ bool MQTTService::connect() {
   Serial.print("MQTT Discovery summary=");
   Serial.println(discoveryPublished ? "ALL OK" : "FAILED");
   return thresholdSubscribed && otaSubscribed && calibrationSubscribed &&
-         pumpEvaluationSubscribed && versionPublished && discoveryPublished &&
+         pumpEvaluationSubscribed && pumpDutySubscribed &&
+         pumpDurationSubscribed && pumpVolumeSubscribed && versionPublished && discoveryPublished &&
          calibrationStatePublished && pumpEvaluationStatePublished;
 }
 
@@ -471,9 +518,9 @@ const bool thresholdOk =
   const char* evaluationObjectIds[] = {"pump_test_a", "pump_test_b",
                                        "pump_test_c"};
   const char* evaluationNames[] = {
-      "流量評価 49%・15秒", "流量評価 49%・30秒",
-      "流量評価 49%・60秒"};
-  const char* evaluationCommands[] = {"TEST_15S", "TEST_30S", "TEST_60S"};
+      "① ポンプ校正を開始", "② 設定値でテスト散水",
+      "④ 実測値から校正を保存"};
+  const char* evaluationCommands[] = {"START", "TEST", "SAVE"};
   bool pumpEvaluationDiscoveryOk = true;
   for (int i = 0; i < 3; ++i) {
     snprintf(discoveryTopic, sizeof(discoveryTopic),
@@ -496,6 +543,42 @@ const bool thresholdOk =
         pumpEvaluationDiscoveryOk;
   }
 
+  const char* calibrationNumberIds[] = {
+      "pump_calibration_duty", "pump_calibration_duration",
+      "pump_calibration_volume"};
+  const char* calibrationNumberNames[] = {
+      "校正Duty（%）", "校正テスト時間（秒）", "③ 実測水量（ml）"};
+  const char* calibrationNumberCommands[] = {
+      pumpCalibrationDutySetTopic, pumpCalibrationDurationSetTopic,
+      pumpCalibrationVolumeSetTopic};
+  const char* calibrationNumberTemplates[] = {
+      "{{ value_json.dutyPercent }}",
+      "{{ (value_json.durationMs / 1000) | int }}",
+      "{{ value_json.measuredVolumeMl }}"};
+  const int calibrationNumberMinimums[] = {1, 1, 1};
+  const int calibrationNumberMaximums[] = {100, 60, 1000};
+  bool pumpCalibrationNumbersOk = true;
+  for (int i = 0; i < 3; ++i) {
+    snprintf(discoveryTopic, sizeof(discoveryTopic),
+             "homeassistant/number/%s/%s/config", deviceIdentifier,
+             calibrationNumberIds[i]);
+    snprintf(
+        discoveryPayload, sizeof(discoveryPayload),
+        "{\"name\":\"%s\",\"unique_id\":\"%s_%s\","
+        "\"command_topic\":\"%s\",\"state_topic\":\"%s\","
+        "\"value_template\":\"%s\",\"min\":%d,\"max\":%d,\"step\":1,"
+        "\"mode\":\"box\",\"device\":{\"identifiers\":[\"%s\"],"
+        "\"name\":\"%s\",\"manufacturer\":\"GreenSync\","
+        "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+        calibrationNumberNames[i], deviceIdentifier, calibrationNumberIds[i],
+        calibrationNumberCommands[i], pumpEvaluationStateTopic,
+        calibrationNumberTemplates[i], calibrationNumberMinimums[i],
+        calibrationNumberMaximums[i], deviceIdentifier, deviceName);
+    pumpCalibrationNumbersOk =
+        publishRetained("discovery pump calibration number", discoveryTopic,
+                        discoveryPayload) && pumpCalibrationNumbersOk;
+  }
+
   const char* obsoleteEvaluationObjectIds[] = {
       "pump_test_d", "pump_test_e", "pump_test_f",
       "pump_test_g", "pump_test_h", "pump_test_i"};
@@ -515,7 +598,7 @@ const bool thresholdOk =
            deviceIdentifier);
   snprintf(
       discoveryPayload, sizeof(discoveryPayload),
-      "{\"name\":\"ポンプ評価を緊急中止\","
+      "{\"name\":\"ポンプ校正を中止\","
       "\"unique_id\":\"%s_pump_test_cancel\","
       "\"command_topic\":\"%s\",\"payload_press\":\"CANCEL\","
       "\"icon\":\"mdi:stop-circle\",\"device\":{\"identifiers\":[\"%s\"],"
@@ -531,7 +614,7 @@ const bool thresholdOk =
            deviceIdentifier);
   snprintf(
       discoveryPayload, sizeof(discoveryPayload),
-      "{\"name\":\"ポンプ評価状態\","
+      "{\"name\":\"ポンプ校正手順・結果\","
       "\"unique_id\":\"%s_pump_test_status\","
       "\"state_topic\":\"%s\",\"value_template\":\"{{ value_json.message }}\","
       "\"json_attributes_topic\":\"%s\",\"icon\":\"mdi:water-pump\","
@@ -547,7 +630,8 @@ const bool thresholdOk =
          otaStatusOk && otaVersionOk && calibrationStartOk &&
          calibrationCaptureOk &&
          calibrationCancelOk && calibrationStatusOk &&
-         pumpEvaluationDiscoveryOk && pumpEvaluationCancelOk &&
+         pumpEvaluationDiscoveryOk && pumpCalibrationNumbersOk &&
+         pumpEvaluationCancelOk &&
          pumpEvaluationStatusOk;
 }
 
@@ -611,13 +695,17 @@ bool MQTTService::publishCalibrationState(const char* state, int dryRaw,
 
 bool MQTTService::publishPumpEvaluationState(
     const char* state, const char* profile, int dutyPercent,
-    int pwmFrequencyHz, int durationMs, const char* message) {
+    int pwmFrequencyHz, int durationMs, int measuredVolumeMl,
+    bool calibrated, int flowMilliMlPerSecond, const char* message) {
   JsonDocument document;
   document["state"] = state;
   document["profile"] = profile;
   document["dutyPercent"] = dutyPercent;
   document["pwmFrequencyHz"] = pwmFrequencyHz;
   document["durationMs"] = durationMs;
+  document["measuredVolumeMl"] = measuredVolumeMl;
+  document["calibrated"] = calibrated;
+  document["flowMilliMlPerSecond"] = flowMilliMlPerSecond;
   document["automaticWateringEnabled"] = Config::AutomaticWateringEnabled;
   document["message"] = message;
 
