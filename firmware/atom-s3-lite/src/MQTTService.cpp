@@ -468,21 +468,14 @@ const bool thresholdOk =
   const bool calibrationStatusOk = publishRetained(
       "discovery calibration status", discoveryTopic, discoveryPayload);
 
-  const char* evaluationObjectIds[] = {
-      "pump_test_a", "pump_test_b", "pump_test_c",
-      "pump_test_d", "pump_test_e", "pump_test_f",
-      "pump_test_g", "pump_test_h", "pump_test_i"};
+  const char* evaluationObjectIds[] = {"pump_test_a", "pump_test_b",
+                                       "pump_test_c"};
   const char* evaluationNames[] = {
-      "始動境界評価 41%・5秒", "始動境界評価 42%・5秒",
-      "始動境界評価 43%・5秒", "始動境界評価 44%・5秒",
-      "始動境界評価 45%・5秒", "始動境界評価 46%・5秒",
-      "始動境界評価 47%・5秒", "始動境界評価 48%・5秒",
-      "始動境界評価 49%・5秒"};
-  const char* evaluationCommands[] = {
-      "TEST_41", "TEST_42", "TEST_43", "TEST_44", "TEST_45",
-      "TEST_46", "TEST_47", "TEST_48", "TEST_49"};
+      "流量評価 49%・15秒", "流量評価 49%・30秒",
+      "流量評価 49%・60秒"};
+  const char* evaluationCommands[] = {"TEST_15S", "TEST_30S", "TEST_60S"};
   bool pumpEvaluationDiscoveryOk = true;
-  for (int i = 0; i < 9; ++i) {
+  for (int i = 0; i < 3; ++i) {
     snprintf(discoveryTopic, sizeof(discoveryTopic),
              "homeassistant/button/%s/%s/config", deviceIdentifier,
              evaluationObjectIds[i]);
@@ -500,6 +493,19 @@ const bool thresholdOk =
     pumpEvaluationDiscoveryOk =
         publishRetained("discovery pump evaluation", discoveryTopic,
                         discoveryPayload) &&
+        pumpEvaluationDiscoveryOk;
+  }
+
+  const char* obsoleteEvaluationObjectIds[] = {
+      "pump_test_d", "pump_test_e", "pump_test_f",
+      "pump_test_g", "pump_test_h", "pump_test_i"};
+  for (int i = 0; i < 6; ++i) {
+    snprintf(discoveryTopic, sizeof(discoveryTopic),
+             "homeassistant/button/%s/%s/config", deviceIdentifier,
+             obsoleteEvaluationObjectIds[i]);
+    pumpEvaluationDiscoveryOk =
+        publishRetained("remove obsolete pump evaluation", discoveryTopic,
+                        "") &&
         pumpEvaluationDiscoveryOk;
   }
 
