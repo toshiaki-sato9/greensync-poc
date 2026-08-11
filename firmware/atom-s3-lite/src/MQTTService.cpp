@@ -471,12 +471,10 @@ const bool thresholdOk =
   const char* evaluationObjectIds[] = {"pump_test_a", "pump_test_b",
                                        "pump_test_c", "pump_test_d"};
   const char* evaluationNames[] = {
-      "PWM境界評価 31%（20kHz・30秒）",
-      "PWM境界評価 32%（20kHz・30秒）",
-      "PWM境界評価 33%（20kHz・30秒）",
-      "PWM境界評価 34%（20kHz・30秒）"};
-  const char* evaluationCommands[] = {"TEST_31", "TEST_32", "TEST_33",
-                                      "TEST_34"};
+      "流量評価 31%・3秒", "流量評価 31%・5秒",
+      "流量評価 31%・10秒", "流量評価 31%・15秒"};
+  const char* evaluationCommands[] = {"TEST_3S", "TEST_5S", "TEST_10S",
+                                      "TEST_15S"};
   bool pumpEvaluationDiscoveryOk = true;
   for (int i = 0; i < 4; ++i) {
     snprintf(discoveryTopic, sizeof(discoveryTopic),

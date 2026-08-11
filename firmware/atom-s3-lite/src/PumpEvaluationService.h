@@ -32,4 +32,5 @@ private:
   const char* profileName_ = "";
   unsigned long startedAtMs_ = 0;
   int dutyPercent_ = 0;
+  int durationMs_ = 0;
 };

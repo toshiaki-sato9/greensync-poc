@@ -7,11 +7,11 @@
 namespace {
 constexpr size_t MaxCommandBytes = 16;
 
-bool resolveProfile(const String& name, int& dutyPercent) {
-  if (name == "TEST_31") dutyPercent = 31;
-  else if (name == "TEST_32") dutyPercent = 32;
-  else if (name == "TEST_33") dutyPercent = 33;
-  else if (name == "TEST_34") dutyPercent = 34;
+bool resolveProfile(const String& name, int& durationMs) {
+  if (name == "TEST_3S") durationMs = 3000;
+  else if (name == "TEST_5S") durationMs = 5000;
+  else if (name == "TEST_10S") durationMs = 10000;
+  else if (name == "TEST_15S") durationMs = 15000;
   else return false;
   return true;
 }
@@ -35,8 +35,8 @@ bool PumpEvaluationService::queueCommand(const byte* payload,
   }
   command.trim();
   command.toUpperCase();
-  int ignoredDuty = 0;
-  if (command != "CANCEL" && !resolveProfile(command, ignoredDuty)) {
+  int ignoredDuration = 0;
+  if (command != "CANCEL" && !resolveProfile(command, ignoredDuration)) {
     return false;
   }
   if (state_ != State::Idle && command != "CANCEL") return false;
@@ -67,8 +67,8 @@ void PumpEvaluationService::loop(bool controllerIdle,
     return;
   }
   if (millis() - startedAtMs_ >=
-      static_cast<unsigned long>(Config::PumpEvaluationDurationMs)) {
-    stop("COMPLETED", "30秒間のPWM評価が完了しました。重量と吐水状態を記録してください");
+      static_cast<unsigned long>(durationMs_)) {
+    stop("COMPLETED", "31% PWM時間評価が完了しました。重量を記録してください");
   }
 }
 
@@ -86,7 +86,7 @@ bool PumpEvaluationService::hasPendingCommand() const {
 
 bool PumpEvaluationService::publishCurrentState() {
   if (state_ == State::Running) {
-    return publish("RUNNING", "20kHz PWMを30秒間出力中です");
+    return publish("RUNNING", "20kHz・31% PWMで時間評価中です");
   }
   return publish("IDLE",
                  "評価用FW：自動散水は無効です。PWM条件を1つ選んでください");
@@ -97,19 +97,22 @@ void PumpEvaluationService::start(const String& profileName,
                                   bool emergencyStopActive,
                                   bool otaUnavailable,
                                   bool calibrationUnavailable) {
-  int duty = 0;
-  if (!resolveProfile(profileName, duty) || !controllerIdle ||
+  int duration = 0;
+  if (!resolveProfile(profileName, duration) ||
+      duration > Config::PumpEvaluationMaxDurationMs || !controllerIdle ||
       emergencyStopActive || otaUnavailable || calibrationUnavailable ||
       pump_ == nullptr || mqtt_ == nullptr) {
     publish("REJECTED", "安全条件を満たさないためPWM評価を開始できません");
     return;
   }
 
-  dutyPercent_ = duty;
-  profileName_ = duty == 31 ? "PWM_31" : duty == 32 ? "PWM_32" :
-                 duty == 33 ? "PWM_33" : "PWM_34";
+  dutyPercent_ = Config::PumpEvaluationDutyPercent;
+  durationMs_ = duration;
+  profileName_ = duration == 3000 ? "PWM_31_3S" :
+                 duration == 5000 ? "PWM_31_5S" :
+                 duration == 10000 ? "PWM_31_10S" : "PWM_31_15S";
   state_ = State::Running;
-  publish("RUNNING", "20kHz PWMを30秒間出力中です");
+  publish("RUNNING", "20kHz・31% PWMで時間評価中です");
   pump_->setDutyPercent(dutyPercent_);
   startedAtMs_ = millis();
 }
@@ -124,5 +127,5 @@ bool PumpEvaluationService::publish(const char* state, const char* message) {
   if (mqtt_ == nullptr) return false;
   return mqtt_->publishPumpEvaluationState(
       state, profileName_, dutyPercent_, Config::PumpPwmFrequencyHz,
-      Config::PumpEvaluationDurationMs, message);
+      durationMs_, message);
 }
