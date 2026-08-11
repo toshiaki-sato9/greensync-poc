@@ -1,7 +1,5 @@
-device_id,firmware_version,trial,pwm_frequency_hz,duty_percent,duration_seconds,water_grams,estimated_water_ml,started_reliably,flow_observation,high_frequency_noise,abnormal_noise,stalled,overheating,primed_tube,notes
-4c1f980af6e8,0.3.17,1,20000,31,30,,,,,,,,,true,
-4c1f980af6e8,0.3.17,1,20000,32,30,,,,,,,,,true,
-4c1f980af6e8,0.3.17,1,20000,33,30,,,,,,,,,true,
-4c1f980af6e8,0.3.17,1,20000,34,30,,,,,,,,,true,
-4c1f980af6e8,0.3.17,1,20000,35,30,,,,,,,,,true,
-4c1f980af6e8,0.3.17,1,20000,36,30,,,,,,,,,true,
+device_id,firmware_version,pwm_frequency_hz,duty_percent,duration_seconds,motor_sound,vibration,water_discharged,water_grams,primed_tube,power_supply,notes
+4c1f980af6e8,0.3.18,20000,40,5,,,,,true,,
+4c1f980af6e8,0.3.18,20000,50,5,,,,,true,,
+4c1f980af6e8,0.3.18,20000,75,5,,,,,true,,
+4c1f980af6e8,0.3.18,20000,100,5,,,,,true,,

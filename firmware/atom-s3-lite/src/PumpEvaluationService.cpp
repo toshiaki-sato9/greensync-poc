@@ -9,12 +9,10 @@ constexpr size_t MaxCommandBytes = 16;
 
 bool resolveProfile(const String& name, int& dutyPercent, int& durationMs) {
   durationMs = Config::PumpEvaluationMaxDurationMs;
-  if (name == "TEST_31") dutyPercent = 31;
-  else if (name == "TEST_32") dutyPercent = 32;
-  else if (name == "TEST_33") dutyPercent = 33;
-  else if (name == "TEST_34") dutyPercent = 34;
-  else if (name == "TEST_35") dutyPercent = 35;
-  else if (name == "TEST_36") dutyPercent = 36;
+  if (name == "TEST_40") dutyPercent = 40;
+  else if (name == "TEST_50") dutyPercent = 50;
+  else if (name == "TEST_75") dutyPercent = 75;
+  else if (name == "TEST_100") dutyPercent = 100;
   else return false;
   return true;
 }
@@ -73,7 +71,7 @@ void PumpEvaluationService::loop(bool controllerIdle,
   }
   if (millis() - startedAtMs_ >=
       static_cast<unsigned long>(durationMs_)) {
-    stop("COMPLETED", "PWM始動境界評価が完了しました。吐水状態と重量を記録してください");
+    stop("COMPLETED", "基準動作確認が完了しました。モーター音と吐水有無を記録してください");
   }
 }
 
@@ -91,7 +89,7 @@ bool PumpEvaluationService::hasPendingCommand() const {
 
 bool PumpEvaluationService::publishCurrentState() {
   if (state_ == State::Running) {
-    return publish("RUNNING", "20kHz PWMで個体別の始動境界を評価中です");
+    return publish("RUNNING", "20kHz PWMで5秒間の基準動作を確認中です");
   }
   return publish("IDLE",
                  "評価用FW：自動散水は無効です。PWM条件を1つ選んでください");
@@ -113,11 +111,10 @@ void PumpEvaluationService::start(const String& profileName,
 
   dutyPercent_ = duty;
   durationMs_ = duration;
-  profileName_ = duty == 31 ? "PWM_31" : duty == 32 ? "PWM_32" :
-                 duty == 33 ? "PWM_33" : duty == 34 ? "PWM_34" :
-                 duty == 35 ? "PWM_35" : "PWM_36";
+  profileName_ = duty == 40 ? "PWM_40" : duty == 50 ? "PWM_50" :
+                 duty == 75 ? "PWM_75" : "PWM_100";
   state_ = State::Running;
-  publish("RUNNING", "20kHz PWMで個体別の始動境界を評価中です");
+  publish("RUNNING", "20kHz PWMで5秒間の基準動作を確認中です");
   pump_->setDutyPercent(dutyPercent_);
   startedAtMs_ = millis();
 }
