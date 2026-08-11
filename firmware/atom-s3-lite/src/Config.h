@@ -18,6 +18,7 @@ constexpr int CalibrationTimeoutMs = 5 * 60 * 1000;
 constexpr int WateringThresholdPercent = 30;
 constexpr int WateringDurationMs = 3000;
 constexpr bool AutomaticWateringEnabled = false;
+constexpr int PumpWateringDutyPercent = 50;
 constexpr int PumpPwmFrequencyHz = 20000;
 constexpr int PumpPwmResolutionBits = 10;
 constexpr int PumpPwmChannel = 7;

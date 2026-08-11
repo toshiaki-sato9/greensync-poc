@@ -71,7 +71,7 @@ void publishCurrentState() {
 void startWatering(unsigned long nowMs) {
   controllerState = ControllerState::Watering;
   wateringStartedAtMs = nowMs;
-  pump.on();
+  pump.setDutyPercent(Config::PumpWateringDutyPercent);
   Serial.println("Soil is dry. Watering...");
 }
 
@@ -107,7 +107,7 @@ void setup() {
 
   wifi.begin();
   calibration.begin(&moistureSensor, &settings, &mqtt);
-  pumpEvaluation.begin(&pump, &mqtt, &settings);
+  pumpEvaluation.begin(&pump, &mqtt);
   mqtt.begin(&settings, &ota, &calibration, &pumpEvaluation);
   ota.begin(&mqtt);
 }
