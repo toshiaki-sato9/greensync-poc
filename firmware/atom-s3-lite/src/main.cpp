@@ -114,20 +114,20 @@ void setup() {
 
 void loop() {
   M5.update();
-  // Do not enter network operations while a short evaluation pulse is ON.
-  // This keeps the physical ON time independent from TCP/MQTT timeouts.
-  if (!pumpEvaluation.isPumpOn()) {
-    wifi.loop();
-    mqtt.loop();
-  }
   const unsigned long nowMs = millis();
   bool shouldPublish = false;
 
+  // Physical emergency stop takes priority over any network operation.
   if (M5.BtnA.pressedFor(Config::EmergencyStopHoldMs) &&
       controllerState != ControllerState::EmergencyStop) {
     enterEmergencyStop();
     shouldPublish = true;
   }
+
+  // Hardware PWM continues independently while MQTT remains responsive to
+  // the evaluation cancel command.
+  wifi.loop();
+  mqtt.loop();
 
   const bool calibrationButtonClicked =
       calibration.isActive() && M5.BtnA.wasClicked();

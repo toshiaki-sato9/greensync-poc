@@ -471,12 +471,10 @@ const bool thresholdOk =
   const char* evaluationObjectIds[] = {"pump_test_a", "pump_test_b",
                                        "pump_test_c", "pump_test_d"};
   const char* evaluationNames[] = {
-      "試験A：250ms ON / 1500ms OFF × 10回",
-      "試験B：500ms ON / 1500ms OFF × 10回",
-      "試験C：750ms ON / 1500ms OFF × 10回",
-      "試験D：1000ms ON / 1500ms OFF × 10回"};
-  const char* evaluationCommands[] = {"TEST_A", "TEST_B", "TEST_C",
-                                      "TEST_D"};
+      "PWM評価 25%（1kHz・10秒）", "PWM評価 50%（1kHz・10秒）",
+      "PWM評価 75%（1kHz・10秒）", "PWM評価 100%（1kHz・10秒）"};
+  const char* evaluationCommands[] = {"TEST_25", "TEST_50", "TEST_75",
+                                      "TEST_100"};
   bool pumpEvaluationDiscoveryOk = true;
   for (int i = 0; i < 4; ++i) {
     snprintf(discoveryTopic, sizeof(discoveryTopic),
@@ -599,17 +597,14 @@ bool MQTTService::publishCalibrationState(const char* state, int dryRaw,
 }
 
 bool MQTTService::publishPumpEvaluationState(
-    const char* state, const char* profile, int pulseOnMs, int pulseOffMs,
-    int targetPulses, int completedPulses, int accumulatedOnMs,
-    const char* message) {
+    const char* state, const char* profile, int dutyPercent,
+    int pwmFrequencyHz, int durationMs, const char* message) {
   JsonDocument document;
   document["state"] = state;
   document["profile"] = profile;
-  document["pulseOnMs"] = pulseOnMs;
-  document["pulseOffMs"] = pulseOffMs;
-  document["targetPulses"] = targetPulses;
-  document["completedPulses"] = completedPulses;
-  document["accumulatedOnMs"] = accumulatedOnMs;
+  document["dutyPercent"] = dutyPercent;
+  document["pwmFrequencyHz"] = pwmFrequencyHz;
+  document["durationMs"] = durationMs;
   document["automaticWateringEnabled"] = Config::AutomaticWateringEnabled;
   document["message"] = message;
 

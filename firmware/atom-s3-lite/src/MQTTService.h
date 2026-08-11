@@ -22,9 +22,8 @@ public:
                                int pendingDryRaw, int sampleRaw,
                                const char* message);
   bool publishPumpEvaluationState(const char* state, const char* profile,
-                                  int pulseOnMs, int pulseOffMs,
-                                  int targetPulses, int completedPulses,
-                                  int accumulatedOnMs, const char* message);
+                                  int dutyPercent, int pwmFrequencyHz,
+                                  int durationMs, const char* message);
 
 private:
   bool connect();

@@ -1,18 +1,17 @@
 #include "PumpEvaluationService.h"
 
+#include "Config.h"
 #include "MQTTService.h"
 #include "PumpController.h"
 
 namespace {
 constexpr size_t MaxCommandBytes = 16;
-constexpr int ProfileOffMs = 1500;
-constexpr int ProfilePulses = 10;
 
-bool resolveProfile(const String& name, int& pulseOnMs) {
-  if (name == "TEST_A") pulseOnMs = 250;
-  else if (name == "TEST_B") pulseOnMs = 500;
-  else if (name == "TEST_C") pulseOnMs = 750;
-  else if (name == "TEST_D") pulseOnMs = 1000;
+bool resolveProfile(const String& name, int& dutyPercent) {
+  if (name == "TEST_25") dutyPercent = 25;
+  else if (name == "TEST_50") dutyPercent = 50;
+  else if (name == "TEST_75") dutyPercent = 75;
+  else if (name == "TEST_100") dutyPercent = 100;
   else return false;
   return true;
 }
@@ -36,8 +35,8 @@ bool PumpEvaluationService::queueCommand(const byte* payload,
   }
   command.trim();
   command.toUpperCase();
-  int ignoredOnMs = 0;
-  if (command != "CANCEL" && !resolveProfile(command, ignoredOnMs)) {
+  int ignoredDuty = 0;
+  if (command != "CANCEL" && !resolveProfile(command, ignoredDuty)) {
     return false;
   }
   if (state_ != State::Idle && command != "CANCEL") return false;
@@ -55,7 +54,7 @@ void PumpEvaluationService::loop(bool controllerIdle,
     if (command == "CANCEL") {
       stop(state_ == State::Idle ? "IDLE" : "CANCELLED",
            state_ == State::Idle ? "ポンプ評価は待機中です"
-                                 : "ポンプ評価を中止しました");
+                                 : "PWM評価を中止しました");
     } else {
       start(command, controllerIdle, emergencyStopActive, otaUnavailable,
             calibrationUnavailable);
@@ -64,29 +63,12 @@ void PumpEvaluationService::loop(bool controllerIdle,
 
   if (state_ == State::Idle) return;
   if (emergencyStopActive || otaUnavailable || calibrationUnavailable) {
-    stop("ABORTED", "安全条件によりポンプ評価を中断しました");
+    stop("ABORTED", "安全条件によりPWM評価を中断しました");
     return;
   }
-
-  const unsigned long elapsed = millis() - phaseStartedAtMs_;
-  if (state_ == State::PulseOn &&
-      elapsed >= static_cast<unsigned long>(pulseOnMs_)) {
-    pump_->off();
-    accumulatedOnMs_ += pulseOnMs_;
-    ++completedPulses_;
-    if (completedPulses_ >= targetPulses_) {
-      stop("COMPLETED", "評価パルスが完了しました。散水量を記録してください");
-      return;
-    }
-    state_ = State::PulseOff;
-    publish("PULSE_OFF", "休止中です");
-    phaseStartedAtMs_ = millis();
-  } else if (state_ == State::PulseOff &&
-             elapsed >= static_cast<unsigned long>(pulseOffMs_)) {
-    state_ = State::PulseOn;
-    publish("PULSE_ON", "評価パルスを出力中です");
-    pump_->on();
-    phaseStartedAtMs_ = millis();
+  if (millis() - startedAtMs_ >=
+      static_cast<unsigned long>(Config::PumpEvaluationDurationMs)) {
+    stop("COMPLETED", "10秒間のPWM評価が完了しました。散水量を記録してください");
   }
 }
 
@@ -95,7 +77,7 @@ bool PumpEvaluationService::isActive() const {
 }
 
 bool PumpEvaluationService::isPumpOn() const {
-  return state_ == State::PulseOn;
+  return state_ == State::Running;
 }
 
 bool PumpEvaluationService::hasPendingCommand() const {
@@ -103,12 +85,11 @@ bool PumpEvaluationService::hasPendingCommand() const {
 }
 
 bool PumpEvaluationService::publishCurrentState() {
-  if (state_ == State::PulseOn) {
-    return publish("PULSE_ON", "評価パルスを出力中です");
+  if (state_ == State::Running) {
+    return publish("RUNNING", "1kHz PWMを10秒間出力中です");
   }
-  if (state_ == State::PulseOff) return publish("PULSE_OFF", "休止中です");
   return publish("IDLE",
-                 "評価用FW：自動散水は無効です。条件を選び1回だけ実行してください");
+                 "評価用FW：自動散水は無効です。PWM条件を1つ選んでください");
 }
 
 void PumpEvaluationService::start(const String& profileName,
@@ -116,26 +97,22 @@ void PumpEvaluationService::start(const String& profileName,
                                   bool emergencyStopActive,
                                   bool otaUnavailable,
                                   bool calibrationUnavailable) {
-  int onMs = 0;
-  if (!resolveProfile(profileName, onMs) || !controllerIdle ||
+  int duty = 0;
+  if (!resolveProfile(profileName, duty) || !controllerIdle ||
       emergencyStopActive || otaUnavailable || calibrationUnavailable ||
       pump_ == nullptr || mqtt_ == nullptr) {
-    publish("REJECTED", "安全条件を満たさないため評価を開始できません");
+    publish("REJECTED", "安全条件を満たさないためPWM評価を開始できません");
     return;
   }
 
-  profileName_ = profileName == "TEST_A" ? "A" :
-                 profileName == "TEST_B" ? "B" :
-                 profileName == "TEST_C" ? "C" : "D";
-  pulseOnMs_ = onMs;
-  pulseOffMs_ = ProfileOffMs;
-  targetPulses_ = ProfilePulses;
-  completedPulses_ = 0;
-  accumulatedOnMs_ = 0;
-  state_ = State::PulseOn;
-  publish("PULSE_ON", "評価パルスを開始しました");
-  pump_->on();
-  phaseStartedAtMs_ = millis();
+  dutyPercent_ = duty;
+  profileName_ = duty == 25 ? "PWM_25" :
+                 duty == 50 ? "PWM_50" :
+                 duty == 75 ? "PWM_75" : "PWM_100";
+  state_ = State::Running;
+  publish("RUNNING", "1kHz PWMを10秒間出力中です");
+  pump_->setDutyPercent(dutyPercent_);
+  startedAtMs_ = millis();
 }
 
 void PumpEvaluationService::stop(const char* state, const char* message) {
@@ -147,6 +124,6 @@ void PumpEvaluationService::stop(const char* state, const char* message) {
 bool PumpEvaluationService::publish(const char* state, const char* message) {
   if (mqtt_ == nullptr) return false;
   return mqtt_->publishPumpEvaluationState(
-      state, profileName_, pulseOnMs_, pulseOffMs_, targetPulses_,
-      completedPulses_, accumulatedOnMs_, message);
+      state, profileName_, dutyPercent_, Config::PumpPwmFrequencyHz,
+      Config::PumpEvaluationDurationMs, message);
 }

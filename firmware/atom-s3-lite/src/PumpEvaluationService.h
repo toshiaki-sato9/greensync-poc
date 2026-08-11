@@ -17,7 +17,7 @@ public:
   bool publishCurrentState();
 
 private:
-  enum class State { Idle, PulseOn, PulseOff };
+  enum class State { Idle, Running };
 
   void start(const String& profileName, bool controllerIdle,
              bool emergencyStopActive, bool otaUnavailable,
@@ -30,10 +30,6 @@ private:
   String queuedCommand_;
   State state_ = State::Idle;
   const char* profileName_ = "";
-  unsigned long phaseStartedAtMs_ = 0;
-  int pulseOnMs_ = 0;
-  int pulseOffMs_ = 0;
-  int targetPulses_ = 0;
-  int completedPulses_ = 0;
-  int accumulatedOnMs_ = 0;
+  unsigned long startedAtMs_ = 0;
+  int dutyPercent_ = 0;
 };
