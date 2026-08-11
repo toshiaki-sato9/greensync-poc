@@ -1,5 +1,10 @@
-device_id,firmware_version,pwm_frequency_hz,duty_percent,duration_seconds,motor_sound,vibration,water_discharged,water_grams,primed_tube,power_supply,notes
-4c1f980af6e8,0.3.18,20000,40,5,,,,,true,,
-4c1f980af6e8,0.3.18,20000,50,5,,,,,true,,
-4c1f980af6e8,0.3.18,20000,75,5,,,,,true,,
-4c1f980af6e8,0.3.18,20000,100,5,,,,,true,,
+device_id,firmware_version,trial,pwm_frequency_hz,duty_percent,duration_seconds,motor_sound,vibration,water_discharged,water_grams,primed_tube,power_supply,notes
+4c1f980af6e8,0.3.19,1,20000,41,5,,,,,true,,
+4c1f980af6e8,0.3.19,1,20000,42,5,,,,,true,,
+4c1f980af6e8,0.3.19,1,20000,43,5,,,,,true,,
+4c1f980af6e8,0.3.19,1,20000,44,5,,,,,true,,
+4c1f980af6e8,0.3.19,1,20000,45,5,,,,,true,,
+4c1f980af6e8,0.3.19,1,20000,46,5,,,,,true,,
+4c1f980af6e8,0.3.19,1,20000,47,5,,,,,true,,
+4c1f980af6e8,0.3.19,1,20000,48,5,,,,,true,,
+4c1f980af6e8,0.3.19,1,20000,49,5,,,,,true,,

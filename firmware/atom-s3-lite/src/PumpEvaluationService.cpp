@@ -9,10 +9,15 @@ constexpr size_t MaxCommandBytes = 16;
 
 bool resolveProfile(const String& name, int& dutyPercent, int& durationMs) {
   durationMs = Config::PumpEvaluationMaxDurationMs;
-  if (name == "TEST_40") dutyPercent = 40;
-  else if (name == "TEST_50") dutyPercent = 50;
-  else if (name == "TEST_75") dutyPercent = 75;
-  else if (name == "TEST_100") dutyPercent = 100;
+  if (name == "TEST_41") dutyPercent = 41;
+  else if (name == "TEST_42") dutyPercent = 42;
+  else if (name == "TEST_43") dutyPercent = 43;
+  else if (name == "TEST_44") dutyPercent = 44;
+  else if (name == "TEST_45") dutyPercent = 45;
+  else if (name == "TEST_46") dutyPercent = 46;
+  else if (name == "TEST_47") dutyPercent = 47;
+  else if (name == "TEST_48") dutyPercent = 48;
+  else if (name == "TEST_49") dutyPercent = 49;
   else return false;
   return true;
 }
@@ -71,7 +76,7 @@ void PumpEvaluationService::loop(bool controllerIdle,
   }
   if (millis() - startedAtMs_ >=
       static_cast<unsigned long>(durationMs_)) {
-    stop("COMPLETED", "基準動作確認が完了しました。モーター音と吐水有無を記録してください");
+    stop("COMPLETED", "個体別の始動境界評価が完了しました。吐水有無を記録してください");
   }
 }
 
@@ -89,7 +94,7 @@ bool PumpEvaluationService::hasPendingCommand() const {
 
 bool PumpEvaluationService::publishCurrentState() {
   if (state_ == State::Running) {
-    return publish("RUNNING", "20kHz PWMで5秒間の基準動作を確認中です");
+    return publish("RUNNING", "20kHz PWMで個体別の始動境界を評価中です");
   }
   return publish("IDLE",
                  "評価用FW：自動散水は無効です。PWM条件を1つ選んでください");
@@ -111,10 +116,12 @@ void PumpEvaluationService::start(const String& profileName,
 
   dutyPercent_ = duty;
   durationMs_ = duration;
-  profileName_ = duty == 40 ? "PWM_40" : duty == 50 ? "PWM_50" :
-                 duty == 75 ? "PWM_75" : "PWM_100";
+  profileName_ = duty == 41 ? "PWM_41" : duty == 42 ? "PWM_42" :
+                 duty == 43 ? "PWM_43" : duty == 44 ? "PWM_44" :
+                 duty == 45 ? "PWM_45" : duty == 46 ? "PWM_46" :
+                 duty == 47 ? "PWM_47" : duty == 48 ? "PWM_48" : "PWM_49";
   state_ = State::Running;
-  publish("RUNNING", "20kHz PWMで5秒間の基準動作を確認中です");
+  publish("RUNNING", "20kHz PWMで個体別の始動境界を評価中です");
   pump_->setDutyPercent(dutyPercent_);
   startedAtMs_ = millis();
 }

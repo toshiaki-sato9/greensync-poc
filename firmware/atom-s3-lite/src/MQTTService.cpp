@@ -468,15 +468,21 @@ const bool thresholdOk =
   const bool calibrationStatusOk = publishRetained(
       "discovery calibration status", discoveryTopic, discoveryPayload);
 
-  const char* evaluationObjectIds[] = {"pump_test_a", "pump_test_b",
-                                       "pump_test_c", "pump_test_d"};
+  const char* evaluationObjectIds[] = {
+      "pump_test_a", "pump_test_b", "pump_test_c",
+      "pump_test_d", "pump_test_e", "pump_test_f",
+      "pump_test_g", "pump_test_h", "pump_test_i"};
   const char* evaluationNames[] = {
-      "基準動作確認 40%・5秒", "基準動作確認 50%・5秒",
-      "基準動作確認 75%・5秒", "基準動作確認 100%・5秒"};
-  const char* evaluationCommands[] = {"TEST_40", "TEST_50", "TEST_75",
-                                      "TEST_100"};
+      "始動境界評価 41%・5秒", "始動境界評価 42%・5秒",
+      "始動境界評価 43%・5秒", "始動境界評価 44%・5秒",
+      "始動境界評価 45%・5秒", "始動境界評価 46%・5秒",
+      "始動境界評価 47%・5秒", "始動境界評価 48%・5秒",
+      "始動境界評価 49%・5秒"};
+  const char* evaluationCommands[] = {
+      "TEST_41", "TEST_42", "TEST_43", "TEST_44", "TEST_45",
+      "TEST_46", "TEST_47", "TEST_48", "TEST_49"};
   bool pumpEvaluationDiscoveryOk = true;
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < 9; ++i) {
     snprintf(discoveryTopic, sizeof(discoveryTopic),
              "homeassistant/button/%s/%s/config", deviceIdentifier,
              evaluationObjectIds[i]);
@@ -497,16 +503,6 @@ const bool thresholdOk =
         pumpEvaluationDiscoveryOk;
   }
 
-  const char* obsoleteEvaluationObjectIds[] = {"pump_test_e", "pump_test_f"};
-  for (int i = 0; i < 2; ++i) {
-    snprintf(discoveryTopic, sizeof(discoveryTopic),
-             "homeassistant/button/%s/%s/config", deviceIdentifier,
-             obsoleteEvaluationObjectIds[i]);
-    pumpEvaluationDiscoveryOk =
-        publishRetained("remove obsolete pump evaluation", discoveryTopic,
-                        "") &&
-        pumpEvaluationDiscoveryOk;
-  }
 
   snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/button/%s/pump_test_cancel/config",
