@@ -1,6 +1,8 @@
 #include "MQTTService.h"
+#include "CalibrationService.h"
 #include "Config.h"
 #include "OtaService.h"
+#include "PumpEvaluationService.h"
 #include "Secrets.h"
 #include "WateringSettings.h"
 #include <Arduino.h>
@@ -18,6 +20,8 @@ WiFiClient wifiClient;
 PubSubClient client(wifiClient);
 WateringSettings* wateringSettings = nullptr;
 OtaService* ota = nullptr;
+CalibrationService* calibration = nullptr;
+PumpEvaluationService* pumpEvaluation = nullptr;
 
 constexpr uint16_t MqttBufferSize = 1024;
 char deviceId[40];
@@ -29,6 +33,13 @@ char thresholdSetTopic[96];
 char otaCommandTopic[96];
 char otaStateTopic[96];
 char otaVersionTopic[96];
+char calibrationCommandTopic[96];
+char calibrationStateTopic[96];
+char pumpEvaluationCommandTopic[96];
+char pumpEvaluationStateTopic[96];
+char wateringLockoutResetTopic[96];
+char discoveryTopic[128];
+char discoveryPayload[768];
 unsigned long lastConnectAttemptAtMs = 0;
 bool connectionAttempted = false;
 bool wasConnected = false;
@@ -55,6 +66,16 @@ void initializeDeviceIdentity() {
            "greensync/atom-s3-%s/ota/state", hardwareId);
   snprintf(otaVersionTopic, sizeof(otaVersionTopic),
            "greensync/atom-s3-%s/ota/version", hardwareId);
+  snprintf(calibrationCommandTopic, sizeof(calibrationCommandTopic),
+           "greensync/atom-s3-%s/calibration/command", hardwareId);
+  snprintf(calibrationStateTopic, sizeof(calibrationStateTopic),
+           "greensync/atom-s3-%s/calibration/state", hardwareId);
+  snprintf(pumpEvaluationCommandTopic, sizeof(pumpEvaluationCommandTopic),
+           "greensync/atom-s3-%s/pump-evaluation/command", hardwareId);
+  snprintf(pumpEvaluationStateTopic, sizeof(pumpEvaluationStateTopic),
+           "greensync/atom-s3-%s/pump-evaluation/state", hardwareId);
+  snprintf(wateringLockoutResetTopic, sizeof(wateringLockoutResetTopic),
+           "greensync/atom-s3-%s/watering-lockout/reset", hardwareId);
 }
 
 bool publishRetained(const char* label, const char* topic, const char* payload) {
@@ -97,8 +118,48 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
   Serial.println();
 
   if (strcmp(topic, otaCommandTopic) == 0) {
-    if (ota == nullptr || !ota->queueCommand(payload, length)) {
+    if (calibration != nullptr &&
+        (calibration->isActive() || calibration->hasPendingCommand())) {
+      Serial.println("OTA command rejected: calibration is active");
+    } else if (pumpEvaluation != nullptr &&
+               (pumpEvaluation->isActive() ||
+                pumpEvaluation->hasPendingCommand())) {
+      Serial.println("OTA command rejected: pump evaluation is active");
+    } else if (ota == nullptr || !ota->queueCommand(payload, length)) {
       Serial.println("OTA command rejected: updater is busy or payload is invalid");
+    }
+    return;
+  }
+
+  if (strcmp(topic, calibrationCommandTopic) == 0) {
+    if (pumpEvaluation != nullptr &&
+        (pumpEvaluation->isActive() ||
+         pumpEvaluation->hasPendingCommand())) {
+      Serial.println("Calibration command rejected: pump evaluation is active");
+    } else if (calibration == nullptr ||
+               !calibration->queueCommand(payload, length)) {
+      Serial.println("Calibration command rejected: payload is invalid or pending");
+    }
+    return;
+  }
+
+  if (strcmp(topic, pumpEvaluationCommandTopic) == 0) {
+    if ((calibration != nullptr &&
+         (calibration->isActive() || calibration->hasPendingCommand())) ||
+        pumpEvaluation == nullptr ||
+        !pumpEvaluation->queueCommand(payload, length)) {
+      Serial.println("Pump evaluation command rejected: unsafe, invalid, or busy");
+    }
+    return;
+  }
+
+  if (strcmp(topic, wateringLockoutResetTopic) == 0) {
+    if (wateringSettings == nullptr || length != 5 ||
+        memcmp(payload, "RESET", 5) != 0 ||
+        !wateringSettings->setWateringLockout(false)) {
+      Serial.println("Watering lockout reset rejected");
+    } else {
+      Serial.println("Watering lockout reset accepted after user confirmation");
     }
     return;
   }
@@ -149,9 +210,13 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
 }
 }
 
-void MQTTService::begin(WateringSettings* settings, OtaService* otaService) {
+void MQTTService::begin(WateringSettings* settings, OtaService* otaService,
+                        CalibrationService* calibrationService,
+                        PumpEvaluationService* pumpEvaluationService) {
   wateringSettings = settings;
   ota = otaService;
+  calibration = calibrationService;
+  pumpEvaluation = pumpEvaluationService;
   initializeDeviceIdentity();
   if (!client.setBufferSize(MqttBufferSize)) {
     Serial.println("MQTT buffer allocation FAILED");
@@ -229,14 +294,34 @@ bool MQTTService::connect() {
   Serial.print(otaCommandTopic);
   Serial.print(", result=");
   Serial.println(otaSubscribed ? "OK" : "FAILED");
+  const bool calibrationSubscribed = client.subscribe(calibrationCommandTopic, 1);
+  Serial.print("MQTT subscribe topic=");
+  Serial.print(calibrationCommandTopic);
+  Serial.print(", result=");
+  Serial.println(calibrationSubscribed ? "OK" : "FAILED");
+  const bool pumpEvaluationSubscribed =
+      client.subscribe(pumpEvaluationCommandTopic, 1);
+  Serial.print("MQTT subscribe topic=");
+  Serial.print(pumpEvaluationCommandTopic);
+  Serial.print(", result=");
+  Serial.println(pumpEvaluationSubscribed ? "OK" : "FAILED");
+  const bool wateringLockoutResetSubscribed =
+      client.subscribe(wateringLockoutResetTopic, 1);
 
   const bool versionPublished =
       publishRetained("OTA version", otaVersionTopic, Config::FirmwareVersion);
 
   const bool discoveryPublished = publishDiscovery();
+  const bool calibrationStatePublished =
+      calibration == nullptr || calibration->publishCurrentState();
+  const bool pumpEvaluationStatePublished =
+      pumpEvaluation == nullptr || pumpEvaluation->publishCurrentState();
   Serial.print("MQTT Discovery summary=");
   Serial.println(discoveryPublished ? "ALL OK" : "FAILED");
-  return thresholdSubscribed && otaSubscribed && versionPublished && discoveryPublished;
+  return thresholdSubscribed && otaSubscribed && calibrationSubscribed &&
+         pumpEvaluationSubscribed && wateringLockoutResetSubscribed &&
+         versionPublished && discoveryPublished &&
+         calibrationStatePublished && pumpEvaluationStatePublished;
 }
 
 bool MQTTService::publishDiscovery() {
@@ -244,13 +329,10 @@ bool MQTTService::publishDiscovery() {
   Serial.print("MQTT connected=");
   Serial.println(client.connected());
 
-  char moistureConfigTopic[128];
-  snprintf(moistureConfigTopic, sizeof(moistureConfigTopic),
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/sensor/%s/moisture/config", deviceIdentifier);
-
-  char moistureConfig[768];
   snprintf(
-      moistureConfig, sizeof(moistureConfig),
+      discoveryPayload, sizeof(discoveryPayload),
       "{\"name\":\"Soil Moisture\",\"unique_id\":\"%s_moisture\","
       "\"state_topic\":\"%s\",\"value_template\":\"{{ value_json.moisture }}\","
       "\"unit_of_measurement\":\"%s\",\"device_class\":\"moisture\","
@@ -260,15 +342,12 @@ bool MQTTService::publishDiscovery() {
       deviceIdentifier, stateTopic, "%", deviceIdentifier, deviceName);
 
   const bool moistureOk =
-      publishRetained("discovery moisture", moistureConfigTopic, moistureConfig);
+      publishRetained("discovery moisture", discoveryTopic, discoveryPayload);
 
-  char wateredConfigTopic[128];
-  snprintf(wateredConfigTopic, sizeof(wateredConfigTopic),
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/binary_sensor/%s/watered/config", deviceIdentifier);
-
-  char wateredConfig[768];
   snprintf(
-      wateredConfig, sizeof(wateredConfig),
+      discoveryPayload, sizeof(discoveryPayload),
       "{\"name\":\"Pump Active\",\"unique_id\":\"%s_pump_active\","
       "\"state_topic\":\"%s\","
       "\"value_template\":\"{{ 'ON' if value_json.watered else 'OFF' }}\","
@@ -278,15 +357,42 @@ bool MQTTService::publishDiscovery() {
       deviceIdentifier, stateTopic, deviceIdentifier, deviceName);
 
 const bool wateredOk =
-  publishRetained("discovery pump", wateredConfigTopic, wateredConfig);
+  publishRetained("discovery pump", discoveryTopic, discoveryPayload);
 
-  char rssiConfigTopic[128];
-  snprintf(rssiConfigTopic, sizeof(rssiConfigTopic),
-           "homeassistant/sensor/%s/rssi/config", deviceIdentifier);
-
-  char rssiConfig[768];
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
+           "homeassistant/sensor/%s/watering_status/config", deviceIdentifier);
   snprintf(
-      rssiConfig, sizeof(rssiConfig),
+      discoveryPayload, sizeof(discoveryPayload),
+      "{\"name\":\"Watering Control Status\","
+      "\"unique_id\":\"%s_watering_status\",\"state_topic\":\"%s\","
+      "\"value_template\":\"{{ value_json.controllerState }}\","
+      "\"json_attributes_topic\":\"%s\",\"icon\":\"mdi:sprinkler-variant\","
+      "\"device\":{\"identifiers\":[\"%s\"],\"name\":\"%s\","
+      "\"manufacturer\":\"GreenSync\",\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+      deviceIdentifier, stateTopic, stateTopic, deviceIdentifier, deviceName);
+
+  const bool wateringStatusOk = publishRetained(
+      "discovery watering status", discoveryTopic, discoveryPayload);
+
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
+           "homeassistant/button/%s/watering_lockout_reset/config",
+           deviceIdentifier);
+  snprintf(
+      discoveryPayload, sizeof(discoveryPayload),
+      "{\"name\":\"散水ロックを確認して解除\","
+      "\"unique_id\":\"%s_watering_lockout_reset\","
+      "\"command_topic\":\"%s\",\"payload_press\":\"RESET\","
+      "\"icon\":\"mdi:lock-open-check\",\"entity_category\":\"config\","
+      "\"device\":{\"identifiers\":[\"%s\"],\"name\":\"%s\","
+      "\"manufacturer\":\"GreenSync\",\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+      deviceIdentifier, wateringLockoutResetTopic, deviceIdentifier, deviceName);
+  const bool wateringLockoutResetOk = publishRetained(
+      "discovery watering lockout reset", discoveryTopic, discoveryPayload);
+
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
+           "homeassistant/sensor/%s/rssi/config", deviceIdentifier);
+  snprintf(
+      discoveryPayload, sizeof(discoveryPayload),
       "{\"name\":\"WiFi RSSI\",\"unique_id\":\"%s_rssi\","
       "\"state_topic\":\"%s\",\"value_template\":\"{{ value_json.rssi }}\","
       "\"unit_of_measurement\":\"dBm\",\"device_class\":\"signal_strength\","
@@ -296,16 +402,13 @@ const bool wateredOk =
       deviceIdentifier, stateTopic, deviceIdentifier, deviceName);
 
 const bool rssiOk =
-  publishRetained("discovery rssi", rssiConfigTopic, rssiConfig);
+  publishRetained("discovery rssi", discoveryTopic, discoveryPayload);
 
-  char thresholdConfigTopic[128];
-  snprintf(thresholdConfigTopic, sizeof(thresholdConfigTopic),
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/number/%s/watering_threshold/config",
            deviceIdentifier);
-
-  char thresholdConfig[768];
   snprintf(
-      thresholdConfig, sizeof(thresholdConfig),
+      discoveryPayload, sizeof(discoveryPayload),
       "{\"name\":\"Watering Threshold\","
       "\"unique_id\":\"%s_watering_threshold\",\"command_topic\":\"%s\","
       "\"command_template\":\"{{ value | int }}\","
@@ -319,16 +422,14 @@ const bool rssiOk =
       deviceIdentifier, deviceName);
 
 const bool thresholdOk =
-  publishRetained("discovery threshold", thresholdConfigTopic, thresholdConfig);
+  publishRetained("discovery threshold", discoveryTopic, discoveryPayload);
 
   const bool thresholdStateOk = publishThresholdState();
 
-  char otaStatusConfigTopic[128];
-  snprintf(otaStatusConfigTopic, sizeof(otaStatusConfigTopic),
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/sensor/%s/ota_status/config", deviceIdentifier);
-  char otaStatusConfig[768];
   snprintf(
-      otaStatusConfig, sizeof(otaStatusConfig),
+      discoveryPayload, sizeof(discoveryPayload),
       "{\"name\":\"OTA Status\",\"unique_id\":\"%s_ota_status\","
       "\"state_topic\":\"%s\",\"value_template\":\"{{ value_json.state }}\","
       "\"json_attributes_topic\":\"%s\",\"device\":{\"identifiers\":[\"%s\"],"
@@ -336,33 +437,181 @@ const bool thresholdOk =
       "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
       deviceIdentifier, otaStateTopic, otaStateTopic, deviceIdentifier, deviceName);
   const bool otaStatusOk =
-      publishRetained("discovery OTA status", otaStatusConfigTopic, otaStatusConfig);
+      publishRetained("discovery OTA status", discoveryTopic, discoveryPayload);
 
-  char otaVersionConfigTopic[128];
-  snprintf(otaVersionConfigTopic, sizeof(otaVersionConfigTopic),
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/sensor/%s/firmware_version/config", deviceIdentifier);
-  char otaVersionConfig[768];
   snprintf(
-      otaVersionConfig, sizeof(otaVersionConfig),
+      discoveryPayload, sizeof(discoveryPayload),
       "{\"name\":\"Firmware Version\",\"unique_id\":\"%s_firmware_version\","
       "\"state_topic\":\"%s\",\"entity_category\":\"diagnostic\","
       "\"device\":{\"identifiers\":[\"%s\"],\"name\":\"%s\","
       "\"manufacturer\":\"GreenSync\",\"model\":\"ATOMS3 Lite Watering Unit\"}}",
       deviceIdentifier, otaVersionTopic, deviceIdentifier, deviceName);
   const bool otaVersionOk =
-      publishRetained("discovery firmware version", otaVersionConfigTopic,
-                      otaVersionConfig);
+      publishRetained("discovery firmware version", discoveryTopic,
+                      discoveryPayload);
 
-  return moistureOk && wateredOk && rssiOk && thresholdOk && thresholdStateOk &&
-         otaStatusOk && otaVersionOk;
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
+           "homeassistant/button/%s/moisture_calibration_start/config",
+           deviceIdentifier);
+  snprintf(
+      discoveryPayload, sizeof(discoveryPayload),
+      "{\"name\":\"① 乾燥土で校正開始\","
+      "\"unique_id\":\"%s_moisture_calibration_start\","
+      "\"command_topic\":\"%s\",\"payload_press\":\"START\","
+      "\"icon\":\"mdi:tune-vertical\",\"device\":{\"identifiers\":[\"%s\"],"
+      "\"name\":\"%s\",\"manufacturer\":\"GreenSync\","
+      "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+      deviceIdentifier, calibrationCommandTopic, deviceIdentifier, deviceName);
+  const bool calibrationStartOk = publishRetained(
+      "discovery calibration start", discoveryTopic, discoveryPayload);
+
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
+           "homeassistant/button/%s/moisture_calibration_capture/config",
+           deviceIdentifier);
+  snprintf(
+      discoveryPayload, sizeof(discoveryPayload),
+      "{\"name\":\"② 表示された基準値を記録\","
+      "\"unique_id\":\"%s_moisture_calibration_capture\","
+      "\"command_topic\":\"%s\",\"payload_press\":\"CAPTURE\","
+      "\"icon\":\"mdi:content-save-check\",\"device\":{\"identifiers\":[\"%s\"],"
+      "\"name\":\"%s\",\"manufacturer\":\"GreenSync\","
+      "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+      deviceIdentifier, calibrationCommandTopic, deviceIdentifier, deviceName);
+  const bool calibrationCaptureOk = publishRetained(
+      "discovery calibration capture", discoveryTopic, discoveryPayload);
+
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
+           "homeassistant/button/%s/moisture_calibration_cancel/config",
+           deviceIdentifier);
+  snprintf(
+      discoveryPayload, sizeof(discoveryPayload),
+      "{\"name\":\"校正を中止\","
+      "\"unique_id\":\"%s_moisture_calibration_cancel\","
+      "\"command_topic\":\"%s\",\"payload_press\":\"CANCEL\","
+      "\"icon\":\"mdi:cancel\",\"entity_category\":\"config\","
+      "\"device\":{\"identifiers\":[\"%s\"],"
+      "\"name\":\"%s\",\"manufacturer\":\"GreenSync\","
+      "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+      deviceIdentifier, calibrationCommandTopic, deviceIdentifier, deviceName);
+  const bool calibrationCancelOk = publishRetained(
+      "discovery calibration cancel", discoveryTopic, discoveryPayload);
+
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
+           "homeassistant/sensor/%s/moisture_calibration_status/config",
+           deviceIdentifier);
+  snprintf(
+      discoveryPayload, sizeof(discoveryPayload),
+      "{\"name\":\"次に行う校正操作\","
+      "\"unique_id\":\"%s_moisture_calibration_status\","
+      "\"state_topic\":\"%s\",\"value_template\":\"{{ value_json.message }}\","
+      "\"json_attributes_topic\":\"%s\",\"icon\":\"mdi:progress-wrench\","
+      "\"device\":{\"identifiers\":[\"%s\"],\"name\":\"%s\","
+      "\"manufacturer\":\"GreenSync\","
+      "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+      deviceIdentifier, calibrationStateTopic, calibrationStateTopic,
+      deviceIdentifier, deviceName);
+  const bool calibrationStatusOk = publishRetained(
+      "discovery calibration status", discoveryTopic, discoveryPayload);
+
+  const char* evaluationObjectIds[] = {"pump_test_a", "pump_test_b",
+                                       "pump_test_c"};
+  const char* evaluationNames[] = {
+      "固定50%散水・3秒", "固定50%散水・5秒",
+      "固定50%散水・10秒"};
+  const char* evaluationCommands[] = {"TEST_3S", "TEST_5S", "TEST_10S"};
+  bool pumpEvaluationDiscoveryOk = true;
+  for (int i = 0; i < 3; ++i) {
+    snprintf(discoveryTopic, sizeof(discoveryTopic),
+             "homeassistant/button/%s/%s/config", deviceIdentifier,
+             evaluationObjectIds[i]);
+    snprintf(
+        discoveryPayload, sizeof(discoveryPayload),
+        "{\"name\":\"%s\",\"unique_id\":\"%s_%s\","
+        "\"command_topic\":\"%s\",\"payload_press\":\"%s\","
+        "\"icon\":\"mdi:test-tube\",\"entity_category\":\"config\","
+        "\"device\":{\"identifiers\":[\"%s\"],\"name\":\"%s\","
+        "\"manufacturer\":\"GreenSync\","
+        "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+        evaluationNames[i], deviceIdentifier, evaluationObjectIds[i],
+        pumpEvaluationCommandTopic, evaluationCommands[i], deviceIdentifier,
+        deviceName);
+    pumpEvaluationDiscoveryOk =
+        publishRetained("discovery pump evaluation", discoveryTopic,
+                        discoveryPayload) &&
+        pumpEvaluationDiscoveryOk;
+  }
+
+  const char* obsoleteEvaluationObjectIds[] = {
+      "pump_test_d", "pump_test_e", "pump_test_f",
+      "pump_test_g", "pump_test_h", "pump_test_i"};
+  for (int i = 0; i < 6; ++i) {
+    snprintf(discoveryTopic, sizeof(discoveryTopic),
+             "homeassistant/button/%s/%s/config", deviceIdentifier,
+             obsoleteEvaluationObjectIds[i]);
+    pumpEvaluationDiscoveryOk =
+        publishRetained("remove obsolete pump evaluation", discoveryTopic,
+                        "") &&
+        pumpEvaluationDiscoveryOk;
+  }
+
+
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
+           "homeassistant/button/%s/pump_test_cancel/config",
+           deviceIdentifier);
+  snprintf(
+      discoveryPayload, sizeof(discoveryPayload),
+      "{\"name\":\"ポンプ評価を緊急中止\","
+      "\"unique_id\":\"%s_pump_test_cancel\","
+      "\"command_topic\":\"%s\",\"payload_press\":\"CANCEL\","
+      "\"icon\":\"mdi:stop-circle\",\"device\":{\"identifiers\":[\"%s\"],"
+      "\"name\":\"%s\",\"manufacturer\":\"GreenSync\","
+      "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+      deviceIdentifier, pumpEvaluationCommandTopic, deviceIdentifier,
+      deviceName);
+  const bool pumpEvaluationCancelOk = publishRetained(
+      "discovery pump evaluation cancel", discoveryTopic, discoveryPayload);
+
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
+           "homeassistant/sensor/%s/pump_test_status/config",
+           deviceIdentifier);
+  snprintf(
+      discoveryPayload, sizeof(discoveryPayload),
+      "{\"name\":\"手動散水テスト状態\","
+      "\"unique_id\":\"%s_pump_test_status\","
+      "\"state_topic\":\"%s\",\"value_template\":\"{{ value_json.message }}\","
+      "\"json_attributes_topic\":\"%s\",\"icon\":\"mdi:water-pump\","
+      "\"device\":{\"identifiers\":[\"%s\"],\"name\":\"%s\","
+      "\"manufacturer\":\"GreenSync\","
+      "\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+      deviceIdentifier, pumpEvaluationStateTopic, pumpEvaluationStateTopic,
+      deviceIdentifier, deviceName);
+  const bool pumpEvaluationStatusOk = publishRetained(
+      "discovery pump evaluation status", discoveryTopic, discoveryPayload);
+
+  return moistureOk && wateredOk && wateringStatusOk &&
+         wateringLockoutResetOk && rssiOk && thresholdOk && thresholdStateOk &&
+         otaStatusOk && otaVersionOk && calibrationStartOk &&
+         calibrationCaptureOk &&
+         calibrationCancelOk && calibrationStatusOk &&
+         pumpEvaluationDiscoveryOk && pumpEvaluationCancelOk &&
+         pumpEvaluationStatusOk;
 }
 
-bool MQTTService::publishState(int raw, int moisturePercent, int rssi, bool watered) {
-  char payload[256];
+bool MQTTService::publishState(int raw, int moisturePercent, int rssi,
+                               bool watered, const char* controllerState,
+                               int wateringPulse, bool wateringLockout,
+                               const char* wateringFaultCode) {
+  char payload[384];
   snprintf(payload, sizeof(payload),
-    "{\"deviceId\":\"%s\",\"raw\":%d,\"moisture\":%d,\"rssi\":%d,\"watered\":%s,\"wateringThreshold\":%d}",
+    "{\"deviceId\":\"%s\",\"raw\":%d,\"moisture\":%d,\"rssi\":%d,"
+    "\"watered\":%s,\"wateringThreshold\":%d,\"controllerState\":\"%s\","
+    "\"wateringPulse\":%d,\"wateringLockout\":%s,\"wateringFaultCode\":\"%s\"}",
     deviceId, raw, moisturePercent, rssi, watered ? "true" : "false",
-    wateringSettings != nullptr ? wateringSettings->wateringThresholdPercent() : 0);
+    wateringSettings != nullptr ? wateringSettings->wateringThresholdPercent() : 0,
+    controllerState, wateringPulse, wateringLockout ? "true" : "false",
+    wateringFaultCode);
 
   Serial.print("Publish: ");
   Serial.println(payload);
@@ -396,4 +645,39 @@ bool MQTTService::publishOtaState(const char* state, const char* requestId,
     return false;
   }
   return publishRetained("OTA state", otaStateTopic, payload);
+}
+
+bool MQTTService::publishCalibrationState(const char* state, int dryRaw,
+                                          int wetRaw, int pendingDryRaw,
+                                          int sampleRaw,
+                                          const char* message) {
+  JsonDocument document;
+  document["state"] = state;
+  document["dryRaw"] = dryRaw;
+  document["wetRaw"] = wetRaw;
+  if (pendingDryRaw > 0) document["pendingDryRaw"] = pendingDryRaw;
+  if (sampleRaw >= 0) document["sampleRaw"] = sampleRaw;
+  document["message"] = message;
+
+  char payload[384];
+  if (serializeJson(document, payload, sizeof(payload)) == 0) return false;
+  return publishRetained("calibration state", calibrationStateTopic, payload);
+}
+
+bool MQTTService::publishPumpEvaluationState(
+    const char* state, const char* profile, int dutyPercent,
+    int pwmFrequencyHz, int durationMs, const char* message) {
+  JsonDocument document;
+  document["state"] = state;
+  document["profile"] = profile;
+  document["dutyPercent"] = dutyPercent;
+  document["pwmFrequencyHz"] = pwmFrequencyHz;
+  document["durationMs"] = durationMs;
+  document["automaticWateringEnabled"] = Config::AutomaticWateringEnabled;
+  document["message"] = message;
+
+  char payload[512];
+  if (serializeJson(document, payload, sizeof(payload)) == 0) return false;
+  return publishRetained("pump evaluation state", pumpEvaluationStateTopic,
+                         payload);
 }

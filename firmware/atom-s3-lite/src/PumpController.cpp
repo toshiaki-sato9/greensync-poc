@@ -3,17 +3,30 @@
 #include <Arduino.h>
 
 void PumpController::begin() {
-  pinMode(Config::PumpPin, OUTPUT);
+  ledcSetup(Config::PumpPwmChannel, Config::PumpPwmFrequencyHz,
+            Config::PumpPwmResolutionBits);
+  ledcAttachPin(Config::PumpPin, Config::PumpPwmChannel);
   off();
 }
 
 void PumpController::off() {
-  digitalWrite(Config::PumpPin, LOW);
+  setDutyPercent(0);
 }
 
 void PumpController::on() {
-  digitalWrite(Config::PumpPin, HIGH);
+  setDutyPercent(100);
 }
+
+void PumpController::setDutyPercent(int dutyPercent) {
+  dutyPercent_ = constrain(dutyPercent, 0, 100);
+  const uint32_t maximumDuty =
+      (1U << Config::PumpPwmResolutionBits) - 1U;
+  const uint32_t duty =
+      maximumDuty * static_cast<uint32_t>(dutyPercent_) / 100U;
+  ledcWrite(Config::PumpPwmChannel, duty);
+}
+
+int PumpController::dutyPercent() const { return dutyPercent_; }
 
 void PumpController::waterForMs(int durationMs) {
   on();

@@ -1,8 +1,10 @@
 #include "MoistureSensor.h"
 #include "Config.h"
+#include "WateringSettings.h"
 #include <Arduino.h>
 
-void MoistureSensor::begin() {
+void MoistureSensor::begin(WateringSettings* settings) {
+  settings_ = settings;
   pinMode(Config::MoisturePin, INPUT);
   analogReadResolution(12);
   analogSetPinAttenuation(Config::MoisturePin, ADC_11db);
@@ -33,14 +35,18 @@ int MoistureSensor::readRaw() const {
 }
 
 int MoistureSensor::percentFromRaw(int raw) const {
-  int percent = map(raw, Config::DryRaw, Config::WetRaw, 0, 100);
+  const int dryRaw = settings_ != nullptr ? settings_->moistureDryRaw() : Config::DryRaw;
+  const int wetRaw = settings_ != nullptr ? settings_->moistureWetRaw() : Config::WetRaw;
+  int percent = map(raw, dryRaw, wetRaw, 0, 100);
   return constrain(percent, 0, 100);
 }
 
 MoistureReading MoistureSensor::read() const {
   const int raw = readRaw();
-  const int calibrationMin = min(Config::DryRaw, Config::WetRaw);
-  const int calibrationMax = max(Config::DryRaw, Config::WetRaw);
+  const int dryRaw = settings_ != nullptr ? settings_->moistureDryRaw() : Config::DryRaw;
+  const int wetRaw = settings_ != nullptr ? settings_->moistureWetRaw() : Config::WetRaw;
+  const int calibrationMin = min(dryRaw, wetRaw);
+  const int calibrationMax = max(dryRaw, wetRaw);
 
   return {
       raw,

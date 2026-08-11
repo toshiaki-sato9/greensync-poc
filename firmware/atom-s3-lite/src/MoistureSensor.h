@@ -1,5 +1,7 @@
 #pragma once
 
+class WateringSettings;
+
 struct MoistureReading {
   int raw;
   int percent;
@@ -9,9 +11,12 @@ struct MoistureReading {
 
 class MoistureSensor {
 public:
-  void begin();
+  void begin(WateringSettings* settings);
   MoistureReading read() const;
   int readRaw() const;
   int percentFromRaw(int raw) const;
   int readPercent() const;
+
+private:
+  WateringSettings* settings_ = nullptr;
 };

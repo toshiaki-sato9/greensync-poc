@@ -88,7 +88,10 @@ flowchart TD
 | `DryRaw` | 2150 | 水分率0%に対応するADC校正値 |
 | `WetRaw` | 1770 | 水分率100%に対応するADC校正値 |
 | `WateringThresholdPercent` | 30 | 散水閾値の初期設計値 |
-| `WateringDurationMs` | 3000 ms | 1回の散水時間 |
+| `WateringDurationMs` | 10000 ms | 1パルスの最大散水時間 |
+| `WateringActiveMonitorIntervalMs` | 1000 ms | 散水中の水分値監視周期 |
+| `WateringSoakDurationMs` | 1800000 ms | 散水後の水分保持確認時間 |
+| `WateringMaxPulses` | 1 | 1サイクルの最大散水回数 |
 | `TelemetryIntervalMs` | 10000 ms | 計測・通知周期 |
 | `EmergencyStopHoldMs` | 1500 ms | 緊急停止を検出する長押し時間 |
 | `WiFiReconnectIntervalMs` | 10000 ms | Wi-Fi再接続試行間隔 |
