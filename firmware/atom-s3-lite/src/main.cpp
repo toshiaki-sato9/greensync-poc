@@ -24,12 +24,18 @@ namespace {
 enum class ControllerState {
   Idle,
   Watering,
+  Soaking,
+  WateringLockout,
   EmergencyStop,
 };
 
 ControllerState controllerState = ControllerState::Idle;
 unsigned long lastTelemetryAtMs = 0;
 unsigned long wateringStartedAtMs = 0;
+unsigned long soakingStartedAtMs = 0;
+int wateringPulseCount = 0;
+int wateringCycleStartPercent = 0;
+const char* wateringFaultCode = "";
 int lastRaw = 0;
 int lastPercent = 0;
 bool hasSensorSample = false;
@@ -42,6 +48,10 @@ const char* stateName(ControllerState state) {
       return "IDLE";
     case ControllerState::Watering:
       return "WATERING";
+    case ControllerState::Soaking:
+      return "SOAKING";
+    case ControllerState::WateringLockout:
+      return "WATERING_LOCKOUT";
     case ControllerState::EmergencyStop:
       return "EMERGENCY_STOP";
   }
@@ -64,21 +74,61 @@ void publishCurrentState() {
 
   mqtt.publishState(
       lastRaw, lastPercent, wifi.rssi(),
-      controllerState == ControllerState::Watering || pumpEvaluation.isPumpOn());
+      controllerState == ControllerState::Watering || pumpEvaluation.isPumpOn(),
+      stateName(controllerState), wateringPulseCount,
+      controllerState == ControllerState::WateringLockout,
+      wateringFaultCode);
   mqtt.publishSettings();
 }
 
-void startWatering(unsigned long nowMs) {
+void startWateringPulse(unsigned long nowMs) {
   controllerState = ControllerState::Watering;
   wateringStartedAtMs = nowMs;
   pump.setDutyPercent(Config::PumpWateringDutyPercent);
-  Serial.println("Soil is dry. Watering...");
+  Serial.print("Watering pulse started: ");
+  Serial.print(wateringPulseCount + 1);
+  Serial.print("/");
+  Serial.println(Config::WateringMaxPulses);
 }
 
-void stopWatering() {
+void finishWateringPulse(unsigned long nowMs) {
   pump.off();
-  Serial.println("Watering done.");
+  ++wateringPulseCount;
+  soakingStartedAtMs = nowMs;
+  controllerState = ControllerState::Soaking;
+  Serial.println("Watering pulse completed. Soil soaking period started.");
+}
+
+void finishWateringCycle(const char* message) {
+  pump.off();
   controllerState = ControllerState::Idle;
+  wateringPulseCount = 0;
+  wateringFaultCode = "";
+  Serial.println(message);
+}
+
+void lockoutWatering(const char* faultCode, const char* message) {
+  pump.off();
+  controllerState = ControllerState::WateringLockout;
+  wateringFaultCode = faultCode;
+  Serial.print("Watering locked out: ");
+  Serial.print(faultCode);
+  Serial.print(" - ");
+  Serial.println(message);
+}
+
+void cancelWateringCycle(const char* reason) {
+  if (controllerState == ControllerState::Watering ||
+      controllerState == ControllerState::Soaking) {
+    finishWateringCycle(reason);
+  }
+}
+
+void startWateringCycle(unsigned long nowMs) {
+  wateringCycleStartPercent = lastPercent;
+  wateringPulseCount = 0;
+  wateringFaultCode = "";
+  startWateringPulse(nowMs);
 }
 
 void enterEmergencyStop() {
@@ -134,26 +184,33 @@ void loop() {
 
   if (controllerState == ControllerState::Watering &&
       nowMs - wateringStartedAtMs >= static_cast<unsigned long>(Config::WateringDurationMs)) {
-    stopWatering();
+    finishWateringPulse(nowMs);
     shouldPublish = true;
   }
 
-  if (ota.hasPendingCommand() && controllerState == ControllerState::Watering) {
-    stopWatering();
+  if (ota.hasPendingCommand() &&
+      (controllerState == ControllerState::Watering ||
+       controllerState == ControllerState::Soaking)) {
+    cancelWateringCycle("Watering cycle cancelled for OTA");
     shouldPublish = true;
   }
   if (calibration.hasPendingCommand() &&
-      controllerState == ControllerState::Watering) {
-    stopWatering();
+      (controllerState == ControllerState::Watering ||
+       controllerState == ControllerState::Soaking)) {
+    cancelWateringCycle("Watering cycle cancelled for moisture calibration");
     shouldPublish = true;
   }
   if (pumpEvaluation.hasPendingCommand() &&
-      controllerState == ControllerState::Watering) {
-    stopWatering();
+      (controllerState == ControllerState::Watering ||
+       controllerState == ControllerState::Soaking)) {
+    cancelWateringCycle("Watering cycle cancelled for pump evaluation");
     shouldPublish = true;
   }
+  const bool controllerAvailable =
+      controllerState == ControllerState::Idle ||
+      controllerState == ControllerState::WateringLockout;
   calibration.loop(
-      controllerState == ControllerState::Idle,
+      controllerAvailable,
       controllerState == ControllerState::EmergencyStop,
       ota.isBusy() || ota.isPendingVerification() || ota.hasPendingCommand(),
       calibrationButtonClicked);
@@ -162,7 +219,7 @@ void loop() {
       controllerState == ControllerState::EmergencyStop,
       ota.isBusy() || ota.isPendingVerification() || ota.hasPendingCommand(),
       calibration.isActive() || calibration.hasPendingCommand());
-  ota.loop(controllerState == ControllerState::Idle,
+  ota.loop(controllerAvailable,
            controllerState == ControllerState::EmergencyStop);
   const bool wateringInhibited =
       ota.isBusy() || ota.isPendingVerification() || ota.hasPendingCommand() ||
@@ -193,10 +250,35 @@ void loop() {
     }
     Serial.println();
 
+    const int stopThreshold = min(
+        100, settings.wateringThresholdPercent() +
+                 Config::WateringStopHysteresisPercent);
+
+    if (controllerState == ControllerState::Soaking &&
+        nowMs - soakingStartedAtMs >=
+            static_cast<unsigned long>(Config::WateringSoakDurationMs)) {
+      if (lastPercent >= stopThreshold) {
+        finishWateringCycle("Target moisture reached. Watering cycle completed.");
+      } else if (wateringPulseCount >= Config::WateringMaxPulses) {
+        lockoutWatering("MAX_WATERING_PULSES",
+                        "Target moisture was not reached within the safety limit");
+      } else if (wateringPulseCount >= 2 &&
+                 lastPercent < wateringCycleStartPercent +
+                                   Config::WateringMinimumResponsePercent) {
+        lockoutWatering("NO_MOISTURE_RESPONSE",
+                        "Moisture did not increase after watering");
+      } else {
+        startWateringPulse(nowMs);
+      }
+    } else if (controllerState == ControllerState::WateringLockout &&
+               lastPercent >= stopThreshold) {
+      finishWateringCycle("Watering lockout cleared after moisture recovery.");
+    }
+
     if (Config::AutomaticWateringEnabled && !allWateringInhibited &&
         controllerState == ControllerState::Idle &&
         lastPercent < settings.wateringThresholdPercent()) {
-      startWatering(nowMs);
+      startWateringCycle(nowMs);
     }
 
     shouldPublish = true;

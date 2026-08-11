@@ -13,7 +13,9 @@ public:
   void loop();
   bool isConnected() const;
   bool publishDiscovery();
-  bool publishState(int raw, int moisturePercent, int rssi, bool watered);
+  bool publishState(int raw, int moisturePercent, int rssi, bool watered,
+                    const char* controllerState, int wateringPulse,
+                    bool wateringLockout, const char* wateringFaultCode);
   bool publishSettings();
   bool publishOtaState(const char* state, const char* requestId,
                        const char* targetVersion, int progress,

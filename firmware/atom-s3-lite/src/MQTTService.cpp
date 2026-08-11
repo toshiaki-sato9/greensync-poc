@@ -343,6 +343,21 @@ const bool wateredOk =
   publishRetained("discovery pump", discoveryTopic, discoveryPayload);
 
   snprintf(discoveryTopic, sizeof(discoveryTopic),
+           "homeassistant/sensor/%s/watering_status/config", deviceIdentifier);
+  snprintf(
+      discoveryPayload, sizeof(discoveryPayload),
+      "{\"name\":\"Watering Control Status\","
+      "\"unique_id\":\"%s_watering_status\",\"state_topic\":\"%s\","
+      "\"value_template\":\"{{ value_json.controllerState }}\","
+      "\"json_attributes_topic\":\"%s\",\"icon\":\"mdi:sprinkler-variant\","
+      "\"device\":{\"identifiers\":[\"%s\"],\"name\":\"%s\","
+      "\"manufacturer\":\"GreenSync\",\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+      deviceIdentifier, stateTopic, stateTopic, deviceIdentifier, deviceName);
+
+  const bool wateringStatusOk = publishRetained(
+      "discovery watering status", discoveryTopic, discoveryPayload);
+
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/sensor/%s/rssi/config", deviceIdentifier);
   snprintf(
       discoveryPayload, sizeof(discoveryPayload),
@@ -543,7 +558,7 @@ const bool thresholdOk =
   const bool pumpEvaluationStatusOk = publishRetained(
       "discovery pump evaluation status", discoveryTopic, discoveryPayload);
 
-  return moistureOk && wateredOk && rssiOk && thresholdOk && thresholdStateOk &&
+  return moistureOk && wateredOk && wateringStatusOk && rssiOk && thresholdOk && thresholdStateOk &&
          otaStatusOk && otaVersionOk && calibrationStartOk &&
          calibrationCaptureOk &&
          calibrationCancelOk && calibrationStatusOk &&
@@ -551,12 +566,19 @@ const bool thresholdOk =
          pumpEvaluationStatusOk;
 }
 
-bool MQTTService::publishState(int raw, int moisturePercent, int rssi, bool watered) {
-  char payload[256];
+bool MQTTService::publishState(int raw, int moisturePercent, int rssi,
+                               bool watered, const char* controllerState,
+                               int wateringPulse, bool wateringLockout,
+                               const char* wateringFaultCode) {
+  char payload[384];
   snprintf(payload, sizeof(payload),
-    "{\"deviceId\":\"%s\",\"raw\":%d,\"moisture\":%d,\"rssi\":%d,\"watered\":%s,\"wateringThreshold\":%d}",
+    "{\"deviceId\":\"%s\",\"raw\":%d,\"moisture\":%d,\"rssi\":%d,"
+    "\"watered\":%s,\"wateringThreshold\":%d,\"controllerState\":\"%s\","
+    "\"wateringPulse\":%d,\"wateringLockout\":%s,\"wateringFaultCode\":\"%s\"}",
     deviceId, raw, moisturePercent, rssi, watered ? "true" : "false",
-    wateringSettings != nullptr ? wateringSettings->wateringThresholdPercent() : 0);
+    wateringSettings != nullptr ? wateringSettings->wateringThresholdPercent() : 0,
+    controllerState, wateringPulse, wateringLockout ? "true" : "false",
+    wateringFaultCode);
 
   Serial.print("Publish: ");
   Serial.println(payload);
