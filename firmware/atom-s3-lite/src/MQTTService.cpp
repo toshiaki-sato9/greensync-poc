@@ -546,7 +546,7 @@ const bool thresholdOk =
            deviceIdentifier);
   snprintf(
       discoveryPayload, sizeof(discoveryPayload),
-      "{\"name\":\"ポンプ評価状態\","
+      "{\"name\":\"手動散水テスト状態\","
       "\"unique_id\":\"%s_pump_test_status\","
       "\"state_topic\":\"%s\",\"value_template\":\"{{ value_json.message }}\","
       "\"json_attributes_topic\":\"%s\",\"icon\":\"mdi:water-pump\","

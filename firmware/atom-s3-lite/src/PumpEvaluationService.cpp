@@ -90,8 +90,11 @@ bool PumpEvaluationService::publishCurrentState() {
   if (state_ == State::Running) {
     return publish("RUNNING", "20kHz・固定50% Dutyで時間散水中です");
   }
-  return publish("IDLE",
-                 "評価用FW：自動散水は無効です。散水時間を1つ選んでください");
+  return publish(
+      "IDLE",
+      Config::AutomaticWateringEnabled
+          ? "自動散水は有効です。必要な場合のみ手動散水テストを実行してください"
+          : "自動散水は無効です。必要な場合のみ手動散水テストを実行してください");
 }
 
 void PumpEvaluationService::start(const String& profileName,
