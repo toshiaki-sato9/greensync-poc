@@ -468,15 +468,17 @@ const bool thresholdOk =
   const bool calibrationStatusOk = publishRetained(
       "discovery calibration status", discoveryTopic, discoveryPayload);
 
-  const char* evaluationObjectIds[] = {"pump_test_a", "pump_test_b",
-                                       "pump_test_c", "pump_test_d"};
+  const char* evaluationObjectIds[] = {
+      "pump_test_a", "pump_test_b", "pump_test_c",
+      "pump_test_d", "pump_test_e", "pump_test_f"};
   const char* evaluationNames[] = {
-      "流量評価 31%・3秒", "流量評価 31%・5秒",
-      "流量評価 31%・10秒", "流量評価 31%・15秒"};
-  const char* evaluationCommands[] = {"TEST_3S", "TEST_5S", "TEST_10S",
-                                      "TEST_15S"};
+      "個体差評価 31%・30秒", "個体差評価 32%・30秒",
+      "個体差評価 33%・30秒", "個体差評価 34%・30秒",
+      "個体差評価 35%・30秒", "個体差評価 36%・30秒"};
+  const char* evaluationCommands[] = {
+      "TEST_31", "TEST_32", "TEST_33", "TEST_34", "TEST_35", "TEST_36"};
   bool pumpEvaluationDiscoveryOk = true;
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < 6; ++i) {
     snprintf(discoveryTopic, sizeof(discoveryTopic),
              "homeassistant/button/%s/%s/config", deviceIdentifier,
              evaluationObjectIds[i]);
@@ -494,18 +496,6 @@ const bool thresholdOk =
     pumpEvaluationDiscoveryOk =
         publishRetained("discovery pump evaluation", discoveryTopic,
                         discoveryPayload) &&
-        pumpEvaluationDiscoveryOk;
-  }
-
-  // Remove the retained 45% and 50% buttons published by firmware 0.3.14.
-  const char* obsoleteEvaluationObjectIds[] = {"pump_test_e", "pump_test_f"};
-  for (int i = 0; i < 2; ++i) {
-    snprintf(discoveryTopic, sizeof(discoveryTopic),
-             "homeassistant/button/%s/%s/config", deviceIdentifier,
-             obsoleteEvaluationObjectIds[i]);
-    pumpEvaluationDiscoveryOk =
-        publishRetained("remove obsolete pump evaluation", discoveryTopic,
-                        "") &&
         pumpEvaluationDiscoveryOk;
   }
 
