@@ -37,6 +37,7 @@ char calibrationCommandTopic[96];
 char calibrationStateTopic[96];
 char pumpEvaluationCommandTopic[96];
 char pumpEvaluationStateTopic[96];
+char wateringLockoutResetTopic[96];
 char discoveryTopic[128];
 char discoveryPayload[768];
 unsigned long lastConnectAttemptAtMs = 0;
@@ -73,6 +74,8 @@ void initializeDeviceIdentity() {
            "greensync/atom-s3-%s/pump-evaluation/command", hardwareId);
   snprintf(pumpEvaluationStateTopic, sizeof(pumpEvaluationStateTopic),
            "greensync/atom-s3-%s/pump-evaluation/state", hardwareId);
+  snprintf(wateringLockoutResetTopic, sizeof(wateringLockoutResetTopic),
+           "greensync/atom-s3-%s/watering-lockout/reset", hardwareId);
 }
 
 bool publishRetained(const char* label, const char* topic, const char* payload) {
@@ -146,6 +149,17 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
         pumpEvaluation == nullptr ||
         !pumpEvaluation->queueCommand(payload, length)) {
       Serial.println("Pump evaluation command rejected: unsafe, invalid, or busy");
+    }
+    return;
+  }
+
+  if (strcmp(topic, wateringLockoutResetTopic) == 0) {
+    if (wateringSettings == nullptr || length != 5 ||
+        memcmp(payload, "RESET", 5) != 0 ||
+        !wateringSettings->setWateringLockout(false)) {
+      Serial.println("Watering lockout reset rejected");
+    } else {
+      Serial.println("Watering lockout reset accepted after user confirmation");
     }
     return;
   }
@@ -291,6 +305,8 @@ bool MQTTService::connect() {
   Serial.print(pumpEvaluationCommandTopic);
   Serial.print(", result=");
   Serial.println(pumpEvaluationSubscribed ? "OK" : "FAILED");
+  const bool wateringLockoutResetSubscribed =
+      client.subscribe(wateringLockoutResetTopic, 1);
 
   const bool versionPublished =
       publishRetained("OTA version", otaVersionTopic, Config::FirmwareVersion);
@@ -303,7 +319,8 @@ bool MQTTService::connect() {
   Serial.print("MQTT Discovery summary=");
   Serial.println(discoveryPublished ? "ALL OK" : "FAILED");
   return thresholdSubscribed && otaSubscribed && calibrationSubscribed &&
-         pumpEvaluationSubscribed && versionPublished && discoveryPublished &&
+         pumpEvaluationSubscribed && wateringLockoutResetSubscribed &&
+         versionPublished && discoveryPublished &&
          calibrationStatePublished && pumpEvaluationStatePublished;
 }
 
@@ -356,6 +373,21 @@ const bool wateredOk =
 
   const bool wateringStatusOk = publishRetained(
       "discovery watering status", discoveryTopic, discoveryPayload);
+
+  snprintf(discoveryTopic, sizeof(discoveryTopic),
+           "homeassistant/button/%s/watering_lockout_reset/config",
+           deviceIdentifier);
+  snprintf(
+      discoveryPayload, sizeof(discoveryPayload),
+      "{\"name\":\"散水ロックを確認して解除\","
+      "\"unique_id\":\"%s_watering_lockout_reset\","
+      "\"command_topic\":\"%s\",\"payload_press\":\"RESET\","
+      "\"icon\":\"mdi:lock-open-check\",\"entity_category\":\"config\","
+      "\"device\":{\"identifiers\":[\"%s\"],\"name\":\"%s\","
+      "\"manufacturer\":\"GreenSync\",\"model\":\"ATOMS3 Lite Watering Unit\"}}",
+      deviceIdentifier, wateringLockoutResetTopic, deviceIdentifier, deviceName);
+  const bool wateringLockoutResetOk = publishRetained(
+      "discovery watering lockout reset", discoveryTopic, discoveryPayload);
 
   snprintf(discoveryTopic, sizeof(discoveryTopic),
            "homeassistant/sensor/%s/rssi/config", deviceIdentifier);
@@ -558,7 +590,8 @@ const bool thresholdOk =
   const bool pumpEvaluationStatusOk = publishRetained(
       "discovery pump evaluation status", discoveryTopic, discoveryPayload);
 
-  return moistureOk && wateredOk && wateringStatusOk && rssiOk && thresholdOk && thresholdStateOk &&
+  return moistureOk && wateredOk && wateringStatusOk &&
+         wateringLockoutResetOk && rssiOk && thresholdOk && thresholdStateOk &&
          otaStatusOk && otaVersionOk && calibrationStartOk &&
          calibrationCaptureOk &&
          calibrationCancelOk && calibrationStatusOk &&

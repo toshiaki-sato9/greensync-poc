@@ -35,7 +35,6 @@ unsigned long wateringStartedAtMs = 0;
 unsigned long lastWateringMonitorAtMs = 0;
 unsigned long soakingStartedAtMs = 0;
 int wateringPulseCount = 0;
-int wateringCycleStartPercent = 0;
 const char* wateringFaultCode = "";
 int lastRaw = 0;
 int lastPercent = 0;
@@ -111,6 +110,7 @@ void finishWateringCycle(const char* message) {
 
 void lockoutWatering(const char* faultCode, const char* message) {
   pump.off();
+  settings.setWateringLockout(true);
   controllerState = ControllerState::WateringLockout;
   wateringFaultCode = faultCode;
   Serial.print("Watering locked out: ");
@@ -127,7 +127,6 @@ void cancelWateringCycle(const char* reason) {
 }
 
 void startWateringCycle(unsigned long nowMs) {
-  wateringCycleStartPercent = lastPercent;
   wateringPulseCount = 0;
   wateringFaultCode = "";
   startWateringPulse(nowMs);
@@ -150,6 +149,10 @@ void setup() {
   pump.begin();
   pump.off();
   settings.begin();
+  if (settings.wateringLockout()) {
+    controllerState = ControllerState::WateringLockout;
+    wateringFaultCode = "MOISTURE_NOT_RETAINED";
+  }
   moistureSensor.begin(&settings);
 
   Serial.println();
@@ -272,19 +275,15 @@ void loop() {
       if (lastPercent >= stopThreshold) {
         finishWateringCycle("Target moisture reached. Watering cycle completed.");
       } else if (wateringPulseCount >= Config::WateringMaxPulses) {
-        lockoutWatering("MAX_WATERING_PULSES",
-                        "Target moisture was not reached within the safety limit");
-      } else if (wateringPulseCount >= 2 &&
-                 lastPercent < wateringCycleStartPercent +
-                                   Config::WateringMinimumResponsePercent) {
-        lockoutWatering("NO_MOISTURE_RESPONSE",
-                        "Moisture did not increase after watering");
+        lockoutWatering(
+            "MOISTURE_NOT_RETAINED",
+            "Moisture remained below threshold after the retention check");
       } else {
         startWateringPulse(nowMs);
       }
     } else if (controllerState == ControllerState::WateringLockout &&
-               lastPercent >= stopThreshold) {
-      finishWateringCycle("Watering lockout cleared after moisture recovery.");
+               !settings.wateringLockout()) {
+      finishWateringCycle("Watering lockout cleared by user confirmation.");
     }
 
     if (Config::AutomaticWateringEnabled && !allWateringInhibited &&

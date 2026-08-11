@@ -8,6 +8,7 @@ namespace {
 constexpr char PreferencesNamespace[] = "greensync";
 constexpr char ThresholdKey[] = "threshold";
 constexpr char CalibrationKey[] = "moistureCal";
+constexpr char WateringLockoutKey[] = "waterLock";
 constexpr int DefaultThresholdPercent = 30;
 constexpr uint32_t CalibrationMagic = 0x47534331;
 
@@ -23,6 +24,7 @@ void WateringSettings::begin() {
   preferences.begin(PreferencesNamespace, true);
   wateringThresholdPercent_ =
       clampThresholdPercent(preferences.getInt(ThresholdKey, DefaultThresholdPercent));
+  wateringLockout_ = preferences.getBool(WateringLockoutKey, false);
   CalibrationData calibration{};
   const bool calibrationRead =
       preferences.getBytesLength(CalibrationKey) == sizeof(calibration) &&
@@ -61,6 +63,19 @@ bool WateringSettings::setMoistureCalibration(int dryRaw, int wetRaw) {
   if (!saved) return false;
   moistureDryRaw_ = dryRaw;
   moistureWetRaw_ = wetRaw;
+  return true;
+}
+
+bool WateringSettings::wateringLockout() const { return wateringLockout_; }
+
+bool WateringSettings::setWateringLockout(bool active) {
+  Preferences preferences;
+  if (!preferences.begin(PreferencesNamespace, false)) return false;
+  const bool saved =
+      preferences.putBool(WateringLockoutKey, active) == sizeof(bool);
+  preferences.end();
+  if (!saved) return false;
+  wateringLockout_ = active;
   return true;
 }
 
