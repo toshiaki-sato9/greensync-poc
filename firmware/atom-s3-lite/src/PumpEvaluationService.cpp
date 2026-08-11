@@ -8,12 +8,10 @@ namespace {
 constexpr size_t MaxCommandBytes = 16;
 
 bool resolveProfile(const String& name, int& dutyPercent) {
-  if (name == "TEST_25") dutyPercent = 25;
-  else if (name == "TEST_30") dutyPercent = 30;
-  else if (name == "TEST_35") dutyPercent = 35;
-  else if (name == "TEST_40") dutyPercent = 40;
-  else if (name == "TEST_45") dutyPercent = 45;
-  else if (name == "TEST_50") dutyPercent = 50;
+  if (name == "TEST_31") dutyPercent = 31;
+  else if (name == "TEST_32") dutyPercent = 32;
+  else if (name == "TEST_33") dutyPercent = 33;
+  else if (name == "TEST_34") dutyPercent = 34;
   else return false;
   return true;
 }
@@ -108,9 +106,8 @@ void PumpEvaluationService::start(const String& profileName,
   }
 
   dutyPercent_ = duty;
-  profileName_ = duty == 25 ? "PWM_25" : duty == 30 ? "PWM_30" :
-                 duty == 35 ? "PWM_35" : duty == 40 ? "PWM_40" :
-                 duty == 45 ? "PWM_45" : "PWM_50";
+  profileName_ = duty == 31 ? "PWM_31" : duty == 32 ? "PWM_32" :
+                 duty == 33 ? "PWM_33" : "PWM_34";
   state_ = State::Running;
   publish("RUNNING", "20kHz PWMを30秒間出力中です");
   pump_->setDutyPercent(dutyPercent_);

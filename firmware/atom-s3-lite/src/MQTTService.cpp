@@ -468,17 +468,17 @@ const bool thresholdOk =
   const bool calibrationStatusOk = publishRetained(
       "discovery calibration status", discoveryTopic, discoveryPayload);
 
-  const char* evaluationObjectIds[] = {
-      "pump_test_a", "pump_test_b", "pump_test_c",
-      "pump_test_d", "pump_test_e", "pump_test_f"};
+  const char* evaluationObjectIds[] = {"pump_test_a", "pump_test_b",
+                                       "pump_test_c", "pump_test_d"};
   const char* evaluationNames[] = {
-      "PWM評価 25%（20kHz・30秒）", "PWM評価 30%（20kHz・30秒）",
-      "PWM評価 35%（20kHz・30秒）", "PWM評価 40%（20kHz・30秒）",
-      "PWM評価 45%（20kHz・30秒）", "PWM評価 50%（20kHz・30秒）"};
-  const char* evaluationCommands[] = {
-      "TEST_25", "TEST_30", "TEST_35", "TEST_40", "TEST_45", "TEST_50"};
+      "PWM境界評価 31%（20kHz・30秒）",
+      "PWM境界評価 32%（20kHz・30秒）",
+      "PWM境界評価 33%（20kHz・30秒）",
+      "PWM境界評価 34%（20kHz・30秒）"};
+  const char* evaluationCommands[] = {"TEST_31", "TEST_32", "TEST_33",
+                                      "TEST_34"};
   bool pumpEvaluationDiscoveryOk = true;
-  for (int i = 0; i < 6; ++i) {
+  for (int i = 0; i < 4; ++i) {
     snprintf(discoveryTopic, sizeof(discoveryTopic),
              "homeassistant/button/%s/%s/config", deviceIdentifier,
              evaluationObjectIds[i]);
@@ -496,6 +496,18 @@ const bool thresholdOk =
     pumpEvaluationDiscoveryOk =
         publishRetained("discovery pump evaluation", discoveryTopic,
                         discoveryPayload) &&
+        pumpEvaluationDiscoveryOk;
+  }
+
+  // Remove the retained 45% and 50% buttons published by firmware 0.3.14.
+  const char* obsoleteEvaluationObjectIds[] = {"pump_test_e", "pump_test_f"};
+  for (int i = 0; i < 2; ++i) {
+    snprintf(discoveryTopic, sizeof(discoveryTopic),
+             "homeassistant/button/%s/%s/config", deviceIdentifier,
+             obsoleteEvaluationObjectIds[i]);
+    pumpEvaluationDiscoveryOk =
+        publishRetained("remove obsolete pump evaluation", discoveryTopic,
+                        "") &&
         pumpEvaluationDiscoveryOk;
   }
 
